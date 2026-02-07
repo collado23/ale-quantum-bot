@@ -2,94 +2,96 @@ import requests, time, hmac, hashlib, os
 import pandas as pd
 import numpy as np
 
-# --- CONFIGURACIÓN DE ALE ---
+# --- CONFIGURACIÓN ALE IA QUANTUM ---
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 BASE_URL = "https://fapi.binance.com"
 SYMBOL = "ETHUSDT"
-ADX_MINIMO = 24.0      # Solo entra con tendencia fuerte
-DISTANCIA_MIN = 4.0    # Distancia mínima al EMA 200
+
+# TUS PARÁMETROS BLINDADOS
+ADX_MIN = 24.0      
+DISTANCIA_MIN = 5.0    
+MARGEN_USO = 0.20   # Interés Compuesto 20%
 LEVERAGE = 10
-MARGEN_USO = 0.20      # 20% de interés compuesto
 
 def firmar(query):
     return hmac.new(API_SECRET.encode(), query.encode(), hashlib.sha256).hexdigest()
 
-def calcular_adx(df, periods=14):
-    """Calcula el ADX sin librerías externas"""
-    df = df.copy()
-    df['h-l'] = df['h'] - df['l']
-    df['h-pc'] = abs(df['h'] - df['c'].shift(1))
-    df['l-pc'] = abs(df['l'] - df['c'].shift(1))
-    df['tr'] = df[['h-l', 'h-pc', 'l-pc']].max(axis=1)
-    
-    df['+dm'] = np.where((df['h'] - df['h'].shift(1)) > (df['l'].shift(1) - df['l']), 
-                         pmax(df['h'] - df['h'].shift(1), 0), 0)
-    df['-dm'] = np.where((df['l'].shift(1) - df['l']) > (df['h'] - df['h'].shift(1)), 
-                         pmax(df['l'].shift(1) - df['l'], 0), 0)
-    
-    tr_smooth = df['tr'].rolling(window=periods).mean()
-    dm_pos_smooth = df['+dm'].rolling(window=periods).mean()
-    dm_neg_smooth = df['-dm'].rolling(window=periods).mean()
-    
-    di_pos = 100 * (dm_pos_smooth / tr_smooth)
-    di_neg = 100 * (dm_neg_smooth / tr_smooth)
-    dx = 100 * abs(di_pos - di_neg) / (di_pos + di_neg)
-    adx = dx.rolling(window=periods).mean()
-    return adx.iloc[-1]
-
-def pmax(a, b): return np.where(a > b, a, b)
-
-def obtener_indicadores():
+def obtener_datos_maestros():
     url = f"{BASE_URL}/fapi/v1/klines?symbol={SYMBOL}&interval=5m&limit=100"
-    data = requests.get(url).json()
-    df = pd.DataFrame(data, columns=['ts','o','h','l','c','v','te','q','n','v_buy','q_buy','i'])
+    df = pd.DataFrame(requests.get(url).json(), columns=['ts','o','h','l','c','v','te','q','n','v_buy','q_buy','i'])
     df[['h','l','c']] = df[['h','l','c']].astype(float)
     
     ema200 = df['c'].ewm(span=200, adjust=False).mean().iloc[-1]
-    adx_val = calcular_adx(df)
-    precio_act = df['c'].iloc[-1]
-    distancia = abs(precio_act - ema200)
     
-    return round(ema200, 2), round(adx_val, 2), round(distancia, 2), precio_act
+    # Cálculo manual de ADX con Pendiente
+    def get_adx(data):
+        d = data.copy()
+        d['h-l'], d['h-pc'], d['l-pc'] = d['h']-d['l'], abs(d['h']-d['c'].shift(1)), abs(d['l']-d['c'].shift(1))
+        d['tr'] = d[['h-l', 'h-pc', 'l-pc']].max(axis=1)
+        d['+dm'] = np.where((d['h']-d['h'].shift(1)) > (d['l'].shift(1)-d['l']), np.maximum(d['h']-d['h'].shift(1), 0), 0)
+        d['-dm'] = np.where((d['l'].shift(1)-d['l']) > (d['h']-d['h'].shift(1)), np.maximum(d['l'].shift(1)-d['l'], 0), 0)
+        tr_s, dp_s, dn_s = d['tr'].rolling(14).mean(), d['+dm'].rolling(14).mean(), d['-dm'].rolling(14).mean()
+        dx = 100 * abs((dp_s/tr_s)-(dn_s/tr_s)) / ((dp_s/tr_s)+(dn_s/tr_s))
+        return dx.rolling(14).mean()
 
-def en_posicion():
-    ts = int(time.time() * 1000)
-    q = f"symbol={SYMBOL}&timestamp={ts}"
-    res = requests.get(f"{BASE_URL}/fapi/v2/positionRisk?{q}&signature={firmar(q)}", headers={"X-MBX-APIKEY": API_KEY}).json()
-    return abs(float(res[0]['positionAmt'])) > 0
+    adx_serie = get_adx(df)
+    adx_act, adx_prev = adx_serie.iloc[-1], adx_serie.iloc[-2]
+    
+    precio = df['c'].iloc[-1]
+    distancia = precio - ema200 
+    
+    return round(ema200,2), round(adx_act,2), adx_act > adx_prev, round(distancia,2), precio
 
-def quantum_final_ale():
-    print(f"🚀 GATITO QUANTUM | ADX: {ADX_MINIMO} | DIST: {DISTANCIA_MIN}")
-    estado_anterior = False
+def quantum_v6_final():
+    print(f"🔱 ALE IA QUANTUM v6 ACTIVADO | Meta 100 Op | ADX: {ADX_MIN}")
+    prev_pos = False
 
     while True:
         try:
-            pos_actual = en_posicion()
-            if estado_anterior and not pos_actual:
-                print("⚗️ BREAKING BAD: ¡Operación cerrada! Preparando siguiente tanda.")
-            estado_anterior = pos_actual
+            ts = int(time.time()*1000)
+            # Obtener Saldo USDT
+            q_acc = f"timestamp={ts}"
+            acc = requests.get(f"{BASE_URL}/fapi/v2/account?{q_acc}&signature={firmar(q_acc)}", headers={"X-MBX-APIKEY":API_KEY}).json()
+            balance = round(float([a['walletBalance'] for a in acc['assets'] if a['asset']=='USDT'][0]), 2)
+            
+            # Check Posición
+            q_pos = f"symbol={SYMBOL}&timestamp={ts}"
+            pos = requests.get(f"{BASE_URL}/fapi/v2/positionRisk?{q_pos}&signature={firmar(q_pos)}", headers={"X-MBX-APIKEY":API_KEY}).json()
+            en_op = abs(float(pos[0]['positionAmt'])) > 0
 
-            if not pos_actual:
-                ema200, adx, dist, precio = obtener_indicadores()
+            # Aviso BREAKING BAD
+            if prev_pos and not en_op:
+                print(f"⚗️ BREAKING BAD: ¡Hachazo cobrado! Nuevo Saldo: ${balance}")
+            prev_pos = en_op
+
+            if not en_op:
+                e200, adx, subiendo, dist, precio = obtener_datos_maestros()
                 
-                # Radar 200 niveles
+                # Radar Quantum 200 niveles
                 res_l = requests.get(f"{BASE_URL}/fapi/v1/depth?symbol={SYMBOL}&limit=500").json()
-                c_200 = sum(float(b[1]) for b in res_l['bids'][:200])
-                v_200 = sum(float(a[1]) for a in res_l['asks'][:200])
-                p_suba = (c_200 / (c_200 + v_200)) * 100
+                bids = sum(float(b[1]) for b in res_l['bids'][:200])
+                asks = sum(float(a[1]) for a in res_l['asks'][:200])
+                radar = (bids / (bids + asks)) * 100
 
-                print(f"⏱️ {time.strftime('%H:%M:%S')} | Radar: {p_suba:.1f}% | ADX: {adx} | Dist: {dist}")
+                flecita = "📈" if subiendo else "📉"
+                print(f"⏱️ {time.strftime('%H:%M:%S')} | 💰 ${balance} | Radar: {radar:.1f}% | ADX: {adx} {flecita} | Dist: {dist}")
 
-                if p_suba > 76 and adx > ADX_MINIMO and dist > DISTANCIA_MIN and precio > ema200:
-                    print(f"🔥 HACHAZO: Radar {p_suba:.1f}% + ADX {adx} + Dist {dist}. ¡ADENTRO!")
-                    # Aquí el bot manda la orden con interés compuesto y Trailing Web
+                # --- LÓGICA DE HACHAZO BIDIRECCIONAL ---
+                
+                # LONG (Suba)
+                if radar > 76 and adx > ADX_MIN and subiendo and dist > DISTANCIA_MIN:
+                    print(f"🔥 HACHAZO LONG: Usando ${round(balance*MARGEN_USO, 2)} | Radar {radar:.1f}%")
+                    time.sleep(600) # Simula espera de ejecución web
+                
+                # SHORT (Baja)
+                elif radar < 24 and adx > ADX_MIN and subiendo and dist < -DISTANCIA_MIN:
+                    print(f"❄️ HACHAZO SHORT: Usando ${round(balance*MARGEN_USO, 2)} | Radar {radar:.1f}%")
                     time.sleep(600)
 
             time.sleep(15)
         except Exception as e:
-            print(f"⚠️ Error: {e}")
-            time.sleep(10)
+            print(f"⚠️ Error: {e}"); time.sleep(10)
 
 if __name__ == "__main__":
-    quantum_final_ale()
+    quantum_v6_final()
