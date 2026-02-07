@@ -1,6 +1,5 @@
-import requests, time, hmac, hashlib
+import requests, time, hmac, hashlib, threading
 from flask import Flask
-import threading
 
 # --- CONFIGURACIÓN MAESTRA ---
 API_KEY = "NDOpSIfLlXENmHGEDJWUPnFacHLTs15iKGxjaSt7ubkqWEOjQ2MF9gJEOz1U5lIW"
@@ -10,53 +9,93 @@ SYMBOL = "ETHUSDT"
 
 app = Flask('')
 @app.route('/')
-def home(): return "🔱 TREN BALA INTELIGENTE ACTIVO"
+def home(): return "🔱 QUANTUM V4: RADAR 200 + TRAILING MANUAL ACTIVO"
 
+# --- FUNCIONES DE SEGURIDAD Y FIRMA ---
 def firmar(query):
     return hmac.new(API_SECRET.encode(), query.encode(), hashlib.sha256).hexdigest()
 
-def obtener_datos():
-    url = f"{BASE_URL}/fapi/v1/klines?symbol={SYMBOL}&interval=1m&limit=15"
-    return requests.get(url).json()
+def enviar_orden(side, qty):
+    ts = int(time.time() * 1000)
+    query = f"symbol={SYMBOL}&side={side}&type=MARKET&quantity={qty}&timestamp={ts}"
+    signature = firmar(query)
+    url = f"{BASE_URL}/fapi/v1/order?{query}&signature={signature}"
+    res = requests.post(url, headers={"X-MBX-APIKEY": API_KEY}).json()
+    return res
+
+# --- RADAR DE PROFUNDIDAD (200 NIVELES) ---
+def obtener_radar_200():
+    url = f"{BASE_URL}/fapi/v1/depth?symbol={SYMBOL}&limit=500"
+    res = requests.get(url).json()
+    vol_compra = sum(float(bid[1]) for bid in res['bids'][:200])
+    vol_venta = sum(float(ask[1]) for ask in res['asks'][:200])
+    total = vol_compra + vol_venta
+    return (vol_compra / total) * 100
+
+def obtener_precio():
+    url = f"{BASE_URL}/fapi/v1/ticker/price?symbol={SYMBOL}"
+    return float(requests.get(url).json()['price'])
 
 def obtener_saldo():
     ts = int(time.time() * 1000)
     q = f"timestamp={ts}"
     url = f"{BASE_URL}/fapi/v2/balance?{q}&signature={firmar(q)}"
-    try:
-        res = requests.get(url, headers={"X-MBX-APIKEY": API_KEY}).json()
-        return next((float(i['balance']) for i in res if i['asset'] == 'USDT'), 0)
-    except: return 0
+    res = requests.get(url, headers={"X-MBX-APIKEY": API_KEY}).json()
+    return next((float(i['balance']) for i in res if i['asset'] == 'USDT'), 0)
+
+# --- LÓGICA DEL TRAILING STOP POR SOFTWARE ---
+def ejecutar_operacion(side, qty):
+    print(f"🚀 DISPARANDO {side}...", flush=True)
+    orden = enviar_orden(side, qty)
+    if 'orderId' not in orden:
+        print(f"❌ Error al abrir orden: {orden}", flush=True)
+        return
+
+    precio_entrada = obtener_precio()
+    mejor_precio = precio_entrada
+    lado_cierre = "SELL" if side == "BUY" else "BUY"
+    
+    # Bucle de Trailing Stop Dinámico (0.3% de retroceso)
+    while True:
+        precio_actual = obtener_precio()
+        
+        if side == "BUY":
+            if precio_actual > mejor_precio: mejor_precio = precio_actual
+            retroceso = (mejor_precio - precio_actual) / mejor_precio * 100
+            if retroceso > 0.3: # Si el precio cae 0.3% desde el pico, cerramos
+                print(f"⚠️ REBOTE DETECTADO. Cerrando Ganancia...", flush=True)
+                enviar_orden(lado_cierre, qty)
+                break
+        else:
+            if precio_actual < mejor_precio: mejor_precio = precio_actual
+            retroceso = (precio_actual - mejor_precio) / mejor_precio * 100
+            if retroceso > 0.3: # Si el precio sube 0.3% desde el fondo, cerramos
+                print(f"⚠️ REBOTE DETECTADO. Cerrando Ganancia...", flush=True)
+                enviar_orden(lado_cierre, qty)
+                break
+        time.sleep(1)
 
 def iniciar_bot():
-    print("🚄 TREN BALA CON SENSOR ANTI-ZIGZAG INICIADO...", flush=True)
+    print("🚄 TREN BALA V4 INICIADO. Radar 200 y Trailing Manual...", flush=True)
     while True:
         try:
-            velas = obtener_datos()
             saldo = obtener_saldo()
-            precios = [float(v[4]) for v in velas]
+            p_suba = obtener_radar_200()
+            precio_act = obtener_precio()
             
-            rango = max(precios[-5:]) - min(precios[-5:])
-            movimiento_porcentaje = (rango / precios[-1]) * 100
+            # Cálculo de cantidad con interés compuesto (20% del saldo x10 apalancamiento)
+            cantidad_eth = round((saldo * 0.20 * 10) / precio_act, 3)
             
-            v2_vol = float(velas[-1][5])
-            vol_promedio = sum(float(v[5]) for v in velas[-11:-1]) / 10
-            
-            print(f"📊 Saldo: ${saldo:.2f} | Mov: {movimiento_porcentaje:.2f}% | Vol: {v2_vol:.0f}", flush=True)
+            print(f"📊 Saldo: ${saldo:.2f} | 🔮 Suba: {p_suba:.1f}% | Baja: {100-p_suba:.1f}%", flush=True)
 
-            if movimiento_porcentaje < 0.25:
-                print(f"😴 ZIGZAG DETECTADO. Protegiendo capital...", flush=True)
-            elif v2_vol > (vol_promedio * 1.3):
-                aceleracion = (precios[-1] - precios[-2]) / precios[-2]
-                if aceleracion > 0:
-                    print(f"🚀 [LONG] DISPARANDO 20% x10", flush=True)
-                else:
-                    print(f"📉 [SHORT] DISPARANDO 20% x10", flush=True)
-            else:
-                print("📡 ESPERANDO MASA CRÍTICA...", flush=True)
-            time.sleep(60)
+            if p_suba > 75: # Muro de compra masivo
+                ejecutar_operacion("BUY", cantidad_eth)
+            elif p_suba < 25: # Muro de venta masivo
+                ejecutar_operacion("SELL", cantidad_eth)
+            
+            time.sleep(30)
         except Exception as e:
-            time.sleep(20)
+            time.sleep(10)
 
 if __name__ == "__main__":
     threading.Thread(target=iniciar_bot, daemon=True).start()
