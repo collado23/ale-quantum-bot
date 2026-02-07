@@ -9,93 +9,69 @@ SYMBOL = "ETHUSDT"
 
 app = Flask('')
 @app.route('/')
-def home(): return "🔱 QUANTUM V4: RADAR 200 + TRAILING MANUAL ACTIVO"
+def home(): return "🔱 QUANTUM V4.1 - INMORTAL ACTIVO"
 
-# --- FUNCIONES DE SEGURIDAD Y FIRMA ---
 def firmar(query):
     return hmac.new(API_SECRET.encode(), query.encode(), hashlib.sha256).hexdigest()
 
 def enviar_orden(side, qty):
     ts = int(time.time() * 1000)
     query = f"symbol={SYMBOL}&side={side}&type=MARKET&quantity={qty}&timestamp={ts}"
-    signature = firmar(query)
-    url = f"{BASE_URL}/fapi/v1/order?{query}&signature={signature}"
-    res = requests.post(url, headers={"X-MBX-APIKEY": API_KEY}).json()
-    return res
+    url = f"{BASE_URL}/fapi/v1/order?{query}&signature={firmar(query)}"
+    return requests.post(url, headers={"X-MBX-APIKEY": API_KEY}).json()
 
-# --- RADAR DE PROFUNDIDAD (200 NIVELES) ---
-def obtener_radar_200():
-    url = f"{BASE_URL}/fapi/v1/depth?symbol={SYMBOL}&limit=500"
-    res = requests.get(url).json()
-    vol_compra = sum(float(bid[1]) for bid in res['bids'][:200])
-    vol_venta = sum(float(ask[1]) for ask in res['asks'][:200])
-    total = vol_compra + vol_venta
-    return (vol_compra / total) * 100
+def obtener_datos():
+    url_p = f"{BASE_URL}/fapi/v1/ticker/price?symbol={SYMBOL}"
+    url_d = f"{BASE_URL}/fapi/v1/depth?symbol={SYMBOL}&limit=500"
+    p = float(requests.get(url_p).json()['price'])
+    res = requests.get(url_d).json()
+    v_c = sum(float(b[1]) for b in res['bids'][:200])
+    v_v = sum(float(a[1]) for a in res['asks'][:200])
+    return p, (v_c / (v_c + v_v)) * 100
 
-def obtener_precio():
-    url = f"{BASE_URL}/fapi/v1/ticker/price?symbol={SYMBOL}"
-    return float(requests.get(url).json()['price'])
-
-def obtener_saldo():
-    ts = int(time.time() * 1000)
-    q = f"timestamp={ts}"
-    url = f"{BASE_URL}/fapi/v2/balance?{q}&signature={firmar(q)}"
-    res = requests.get(url, headers={"X-MBX-APIKEY": API_KEY}).json()
-    return next((float(i['balance']) for i in res if i['asset'] == 'USDT'), 0)
-
-# --- LÓGICA DEL TRAILING STOP POR SOFTWARE ---
 def ejecutar_operacion(side, qty):
-    print(f"🚀 DISPARANDO {side}...", flush=True)
-    orden = enviar_orden(side, qty)
-    if 'orderId' not in orden:
-        print(f"❌ Error al abrir orden: {orden}", flush=True)
-        return
-
-    precio_entrada = obtener_precio()
-    mejor_precio = precio_entrada
-    lado_cierre = "SELL" if side == "BUY" else "BUY"
+    print(f"🚀 ENTRANDO EN {side} - Cantidad: {qty}", flush=True)
+    enviar_orden(side, qty)
+    p_entrada, _ = obtener_datos()
+    mejor_p = p_entrada
+    lado_c = "SELL" if side == "BUY" else "BUY"
     
-    # Bucle de Trailing Stop Dinámico (0.3% de retroceso)
-    while True:
-        precio_actual = obtener_precio()
-        
+    while True: # Bucle de Trailing Inmortal
+        time.sleep(5) 
+        p_act, _ = obtener_datos()
         if side == "BUY":
-            if precio_actual > mejor_precio: mejor_precio = precio_actual
-            retroceso = (mejor_precio - precio_actual) / mejor_precio * 100
-            if retroceso > 0.3: # Si el precio cae 0.3% desde el pico, cerramos
-                print(f"⚠️ REBOTE DETECTADO. Cerrando Ganancia...", flush=True)
-                enviar_orden(lado_cierre, qty)
-                break
+            if p_act > mejor_p: mejor_p = p_act
+            ret = (mejor_p - p_act) / mejor_p * 100
         else:
-            if precio_actual < mejor_precio: mejor_precio = precio_actual
-            retroceso = (precio_actual - mejor_precio) / mejor_precio * 100
-            if retroceso > 0.3: # Si el precio sube 0.3% desde el fondo, cerramos
-                print(f"⚠️ REBOTE DETECTADO. Cerrando Ganancia...", flush=True)
-                enviar_orden(lado_cierre, qty)
-                break
-        time.sleep(1)
+            if p_act < mejor_p: mejor_p = p_act
+            ret = (p_act - mejor_p) / mejor_p * 100
+        
+        # El bot "grita" cada 5 segundos para no dormirse
+        print(f"📡 VIGILANDO {side} | Actual: ${p_act} | Max: ${mejor_p} | Retroceso: {ret:.2f}%", flush=True)
+        
+        if ret > 0.22: # Umbral de salida
+            print(f"⚠️ HACHAZO DETECTADO. Cerrando posición...", flush=True)
+            enviar_orden(lado_c, qty)
+            break
 
 def iniciar_bot():
-    print("🚄 TREN BALA V4 INICIADO. Radar 200 y Trailing Manual...", flush=True)
+    print("🚄 TREN BALA V4.1: MODO INMORTAL ACTIVADO", flush=True)
     while True:
         try:
-            saldo = obtener_saldo()
-            p_suba = obtener_radar_200()
-            precio_act = obtener_precio()
+            p_act, p_suba = obtener_datos()
+            # Interés compuesto 20% x10 apalancamiento (Calculado sobre el saldo real)
+            ts = int(time.time() * 1000)
+            q = f"timestamp={ts}"
+            res_s = requests.get(f"{BASE_URL}/fapi/v2/balance?{q}&signature={firmar(q)}", headers={"X-MBX-APIKEY": API_KEY}).json()
+            saldo = next(float(i['balance']) for i in res_s if i['asset'] == 'USDT')
             
-            # Cálculo de cantidad con interés compuesto (20% del saldo x10 apalancamiento)
-            cantidad_eth = round((saldo * 0.20 * 10) / precio_act, 3)
-            
-            print(f"📊 Saldo: ${saldo:.2f} | 🔮 Suba: {p_suba:.1f}% | Baja: {100-p_suba:.1f}%", flush=True)
+            qty = round((saldo * 0.20 * 10) / p_act, 3)
+            print(f"📊 ${saldo:.2f} | 🔮 Radar: {p_suba:.1f}% Suba / {100-p_suba:.1f}% Baja", flush=True)
 
-            if p_suba > 75: # Muro de compra masivo
-                ejecutar_operacion("BUY", cantidad_eth)
-            elif p_suba < 25: # Muro de venta masivo
-                ejecutar_operacion("SELL", cantidad_eth)
-            
-            time.sleep(30)
-        except Exception as e:
-            time.sleep(10)
+            if p_suba > 76: ejecutar_operacion("BUY", qty)
+            elif p_suba < 24: ejecutar_operacion("SELL", qty)
+            time.sleep(20)
+        except: time.sleep(10)
 
 if __name__ == "__main__":
     threading.Thread(target=iniciar_bot, daemon=True).start()
