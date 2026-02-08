@@ -6,16 +6,23 @@ from binance.client import Client
 def gladiador():
     sym = 'ETHUSDT'
     try:
-        # El bot busca las variables que pusiste en Railway
-        client = Client(os.getenv('API_KEY'), os.getenv('API_SECRET'))
-        print("⚔️ Gladiador ETH: Conexión Exitosa - SISTEMA NUEVO")
+        # Lee las llaves que cargaste en la pestaña Variables
+        api_key = os.getenv('API_KEY')
+        api_secret = os.getenv('API_SECRET')
+        
+        if not api_key or not api_secret:
+            print("❌ ERROR: Faltan las llaves en la pestaña Variables")
+            return
+
+        client = Client(api_key, api_secret)
+        print("⚔️ Gladiador ETH: Conexión Exitosa - SISTEMA UNIFICADO")
     except Exception as e:
-        print(f"❌ Error API: {e}")
+        print(f"❌ Error de Conexión: {e}")
         return
 
     while True:
         try:
-            # 1. Datos e Indicadores
+            # 1. Indicadores (ADX 25 + EMA 200)
             k = client.futures_klines(symbol=sym, interval='5m', limit=100)
             df = pd.DataFrame(k, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
             df['close'] = pd.to_numeric(df['c'])
@@ -25,7 +32,6 @@ def gladiador():
             p_act = df['close'].iloc[-1]
             ema = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
             
-            # ADX Manual (Filtro 25)
             p_dm = (df['high'].diff()).clip(lower=0)
             m_dm = (-df['low'].diff()).clip(lower=0)
             tr = np.maximum(df['high']-df['low'], np.maximum(abs(df['high']-df['close'].shift(1)), abs(df['low']-df['close'].shift(1))))
@@ -34,7 +40,7 @@ def gladiador():
             m_di = 100 * (m_dm.rolling(14).mean() / atr).iloc[-1]
             adx = (100 * abs(p_di - m_di) / (p_di + m_di)) if (p_di + m_di) != 0 else 0
             
-            # 2. Posición
+            # 2. Estado de posición
             pos = client.futures_position_information(symbol=sym)
             amt = next(float(i['positionAmt']) for i in pos if i['symbol'] == sym)
             
@@ -45,7 +51,7 @@ def gladiador():
             
             print(f"🔎 ETH:{p_act} | ADX:{round(adx,1)} | Señal:{dec} | Pos:{amt}")
 
-            # 3. Operar (20% Compuesto + Distancia 9)
+            # 3. Ordenes (20% Compuesto + Distancia 9)
             if amt == 0 and dec in ["LONG", "SHORT"]:
                 bal = client.futures_account_balance()
                 cap = next(float(b['balance']) for b in bal if b['asset'] == 'USDT')
@@ -54,10 +60,10 @@ def gladiador():
                 side = 'BUY' if dec == "LONG" else 'SELL'
                 client.futures_create_order(symbol=sym, side=side, type='MARKET', quantity=qty)
                 
-                # ESCUDO DISTANCIA 9 (0.9%)
+                # ESCUDO TRAILING 0.9%
                 inv = 'SELL' if side == 'BUY' else 'BUY'
                 client.futures_create_order(symbol=sym, side=inv, type='TRAILING_STOP_MARKET', callbackRate=0.9, quantity=qty, reduceOnly=True)
-                print(f"🚀 Entrada {dec} - Escudo 0.9% OK")
+                print(f"🚀 {dec} Activado con Escudo 0.9%")
 
         except Exception as e:
             print(f"⚠️ Reintentando... {e}")
