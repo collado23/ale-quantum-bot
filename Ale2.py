@@ -15,28 +15,24 @@ leverage = 10
 capital_percent = 0.20 
 
 def calcular_adx(df, length=14):
+    df = df.copy()
     df['h-l'] = df['high'] - df['low']
     df['h-pc'] = abs(df['high'] - df['close'].shift(1))
     df['l-pc'] = abs(df['low'] - df['close'].shift(1))
     df['tr'] = df[['h-l', 'h-pc', 'l-pc']].max(axis=1)
-    
     tr_smooth = df['tr'].ewm(alpha=1/length, adjust=False).mean()
-    
     df['up'] = df['high'] - df['high'].shift(1)
     df['down'] = df['low'].shift(1) - df['low']
-    
     df['+dm'] = np.where((df['up'] > df['down']) & (df['up'] > 0), df['up'], 0)
     df['-dm'] = np.where((df['down'] > df['up']) & (df['down'] > 0), df['down'], 0)
-    
     plus_di = 100 * (df['+dm'].ewm(alpha=1/length, adjust=False).mean() / tr_smooth)
     minus_di = 100 * (df['-dm'].ewm(alpha=1/length, adjust=False).mean() / tr_smooth)
-    
     dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
     adx = dx.ewm(alpha=1/length, adjust=False).mean()
     return adx.iloc[-1]
 
 def ejecutar_gladiador():
-    print(f"🔱 ALE2.py COMPLETO - PRECIO | DIST | ADX | MACD")
+    print(f"🔱 ALE2.py COMPLETO - MONITOREANDO {symbol}")
     
     try:
         client.futures_change_leverage(symbol=symbol, leverage=leverage)
@@ -45,31 +41,30 @@ def ejecutar_gladiador():
 
     while True:
         try:
-            # Obtener datos
-            klines = client.futures_klines(symbol=symbol, interval='5m', limit=100)
-            df = pd.DataFrame(klines, columns=['t','o','h','l','c','v','ct','q','n','tb','tq','i'])
-            df[['h','l','c']] = df[['h','l','c']].astype(float)
+            # DESCARGA COMPLETA DE DATOS (Corregido para ADX)
+            klines = client.futures_klines(symbol=symbol, interval='5m', limit=150)
+            df = pd.DataFrame(klines, columns=['time','open','high','low','close','vol','ct','q','n','tb','tq','i'])
+            df[['high','low','close']] = df[['high','low','close']].astype(float)
             
             # --- CÁLCULOS ---
-            precio = df['c'].iloc[-1]
+            precio = df['close'].iloc[-1]
             
             # 1. EMA 200 y Distancia
-            ema_200 = df['c'].ewm(span=200, adjust=False).mean().iloc[-1]
+            ema_200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
             distancia = ((precio - ema_200) / ema_200) * 100
             
             # 2. ADX
             adx_val = calcular_adx(df)
             
             # 3. MACD
-            ema12 = df['c'].ewm(span=12, adjust=False).mean()
-            ema26 = df['c'].ewm(span=26, adjust=False).mean()
-            macd_line = ema12 - ema26
-            macd_signal = macd_line.ewm(span=9, adjust=False).mean()
-            macd_l = macd_line.iloc[-1]
-            macd_s = macd_signal.iloc[-1]
+            ema12 = df['close'].ewm(span=12, adjust=False).mean()
+            ema26 = df['close'].ewm(span=26, adjust=False).mean()
+            macd_l = (ema12 - ema26).iloc[-1]
+            macd_s = (ema12 - ema26).ewm(span=9, adjust=False).mean().iloc[-1]
 
-            # --- LOG DE CONTROL (Lo que vos querés ver) ---
-            print(f"📊 ETH: {precio:.2f} | Dist: {distancia:.2f}% | ADX: {adx_val:.2f} | MACD: {'ALZA' if macd_l > macd_s else 'BAJA'}")
+            # --- LOG QUE VOS QUERÉS VER ---
+            estado_macd = "ALZA 🟢" if macd_l > macd_s else "BAJA 🔴"
+            print(f"📊 ETH: {precio:.2f} | Dist: {distancia:.2f}% | ADX: {adx_val:.1f} | MACD: {estado_macd}")
 
             # --- LÓGICA DE OPERACIÓN ---
             pos = client.futures_position_information(symbol=symbol)
@@ -95,7 +90,7 @@ def ejecutar_gladiador():
             time.sleep(30)
 
         except Exception as e:
-            print(f"⚠️ Error: {e}")
+            print(f"⚠️ Reintentando: {e}")
             time.sleep(20)
 
 if __name__ == "__main__":
