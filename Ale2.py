@@ -4,10 +4,11 @@ import numpy as np
 from binance.client import Client
 
 # ==========================================
-# CEREBRO: ADX 25 + EMA 200
+# CEREBRO: ADX 25 + EMA 200 (TODO EN UNO)
 # ==========================================
 def analizar(client, sym):
     try:
+        # Velas de 5 minutos
         k = client.futures_klines(symbol=sym, interval='5m', limit=100)
         df = pd.DataFrame(k, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
         df['close'] = pd.to_numeric(df['c'])
@@ -17,7 +18,7 @@ def analizar(client, sym):
         p_act = df['close'].iloc[-1]
         ema = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
         
-        # ADX Manual para evitar errores de librerías
+        # ADX Manual para evitar errores de librerías en GitHub
         p_dm = (df['high'].diff()).clip(lower=0)
         m_dm = (-df['low'].diff()).clip(lower=0)
         tr = np.maximum(df['high']-df['low'], np.maximum(abs(df['high']-df['close'].shift(1)), abs(df['low']-df['close'].shift(1))))
@@ -27,33 +28,42 @@ def analizar(client, sym):
         adx = (100 * abs(p_di - m_di) / (p_di + m_di)) if (p_di + m_di) != 0 else 0
         
         res = "ESPERAR"
-        if adx > 25: # Solo entra si hay tendencia
+        # Filtro de Fuerza: Solo operamos si ADX > 25
+        if adx > 25:
             if p_act > ema and p_di > m_di: res = "LONG"
             elif p_act < ema and m_di > p_di: res = "SHORT"
         return res, p_act, adx
-    except: return "ERROR", 0, 0
+    except Exception as e:
+        return "ERROR", 0, 0
 
 # ==========================================
-# MOTOR: 20% COMPUESTO + DISTANCIA 9
+# MOTOR: 20% COMPUESTO + DISTANCIA 9 (0.9%)
 # ==========================================
 def ejecutar():
     sym = 'ETHUSDT'
     try:
-        client = Client(os.getenv('API_KEY'), os.getenv('API_SECRET'))
-        print("⚔️ Gladiador ETH: Conexión Exitosa (Todo en Uno)")
-    except: return
+        # Conexión limpia
+        api = os.getenv('API_KEY')
+        sec = os.getenv('API_SECRET')
+        client = Client(api, sec)
+        print("⚔️ Gladiador ETH: Conexión Exitosa (SISTEMA UNIFICADO)")
+    except Exception as e:
+        print(f"❌ Error de Llaves: {e}")
+        return
 
     while True:
         try:
+            # Llamamos a la función que está acá mismo arriba
             dec, p, adx = analizar(client, sym)
+            
             pos = client.futures_position_information(symbol=sym)
             amt = next(float(i['positionAmt']) for i in pos if i['symbol'] == sym)
             
-            # Esto es lo que verás en la consola de Railway
+            # Log de control en tiempo real
             print(f"🔎 ETH:{p} | ADX:{round(adx,1)} | Señal:{dec} | Pos:{amt}")
 
             if amt == 0 and dec in ["LONG", "SHORT"]:
-                # Interés compuesto 20%
+                # Interés compuesto 20% con apalancamiento x10
                 bal = client.futures_account_balance()
                 cap = next(float(b['balance']) for b in bal if b['asset'] == 'USDT')
                 qty = round(((cap * 0.20) * 10) / p, 3)
@@ -61,13 +71,20 @@ def ejecutar():
                 side = 'BUY' if dec == "LONG" else 'SELL'
                 client.futures_create_order(symbol=sym, side=side, type='MARKET', quantity=qty)
                 
-                # ESCUDO DISTANCIA 9 (0.9%)
-                inv = 'SELL' if side == 'BUY' else 'BUY'
-                client.futures_create_order(symbol=sym, side=inv, type='TRAILING_STOP_MARKET', callbackRate=0.9, quantity=qty, reduceOnly=True)
-                print(f"🚀 {dec} Activado - Escudo 0.9%")
-                
+                # ESCUDO DISTANCIA 9 (Trailing Stop 0.9%)
+                inv_side = 'SELL' if side == 'BUY' else 'BUY'
+                client.futures_create_order(
+                    symbol=sym, 
+                    side=inv_side, 
+                    type='TRAILING_STOP_MARKET', 
+                    callbackRate=0.9, 
+                    quantity=qty, 
+                    reduceOnly=True
+                )
+                print(f"🚀 Entrada {dec} ejecutada - Escudo 0.9% Activo")
+
         except Exception as e:
-            print(f"⚠️ Reintentando... {e}")
+            print(f"⚠️ Ciclo: {e}")
         
         sys.stdout.flush()
         time.sleep(30)
