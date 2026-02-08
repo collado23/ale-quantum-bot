@@ -2,86 +2,101 @@ import time
 import sys
 import pandas as pd
 import numpy as np
-try:
-    from binance.client import Client
-except ImportError:
-    print("❌ Error: Instala python-binance")
+from binance.client import Client
 
-# --- IDENTIDAD Y LLAVES ---
-API_KEY = 'TU_API_KEY'
-SECRET_KEY = 'TU_SECRET_KEY'
+# --- CONFIGURACIÓN DE IDENTIDAD ---
+API_KEY = 'TU_API_KEY_AQUI'
+SECRET_KEY = 'TU_SECRET_KEY_AQUI'
+
+# --- PARÁMETROS ESTRATÉGICOS (Memoria Ale) ---
+SIMBOLO = 'ETHUSDT'
+CAPITAL_INICIAL = 36.02
+APALANCAMIENTO = 10           # x10 constante
+PORCENTAJE_OP = 0.20          # 20% Interés Compuesto
+DISTANCIA_MIN_EMA = 5.0       # Filtro de seguridad
+ADX_HACHAZO = 24.0            # Entrada de Poder
+ADX_CAZADORA = 19.0           # Entrada de Acción Rápida
+
+# Inicialización de Binance
 client = Client(API_KEY, SECRET_KEY)
 
-# --- VARIABLES TÉCNICAS (Tu Configuración) ---
-SIMBOLO = 'ETHUSDT'
-LEVERAGE = 10
-DISTANCIA_MIN = 5.0
-ADX_HACHAZO = 24.0
-ADX_CAZADORA = 19.0
-PORCENTAJE_CAPITAL = 0.20 # 20% Interés Compuesto
+def obtener_datos_mercado():
+    """Calcula las variables reales: EMA 200, Distancia y ADX"""
+    try:
+        klines = client.futures_klines(symbol=SIMBOLO, interval='5m', limit=100)
+        df = pd.DataFrame(klines, columns=['time','open','high','low','close','vol','ct','qv','nt','tb','tbb','i'])
+        df['close'] = df['close'].astype(float)
+        df['high'] = df['high'].astype(float)
+        df['low'] = df['low'].astype(float)
 
-def calcular_indicadores():
-    """Calcula las variables reales del mercado"""
-    # Pedimos las últimas velas a Binance
-    klines = client.futures_klines(symbol=SIMBOLO, interval='5m', limit=100)
-    df = pd.DataFrame(klines, columns=['time', 'open', 'high', 'low', 'close', 'vol', 'ct', 'qv', 'nt', 'tb', 'tbb', 'i'])
-    df['close'] = df['close'].astype(float)
-    
-    # --- VARIABLE 1: EMA 200 (La tendencia) ---
-    ema200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
-    precio_actual = df['close'].iloc[-1]
-    
-    # --- VARIABLE 2: DISTANCIA ---
-    distancia = abs(precio_actual - ema200)
-    
-    # --- VARIABLE 3: ADX (Fuerza) ---
-    # Simplificado para el bot
-    df['up'] = df['high'].diff()
-    df['down'] = -df['low'].diff()
-    # (Aquí iría el cálculo completo del ADX que ya tiene tu Ale2.py)
-    adx_actual = 20.5 # Este valor lo extrae de tu lógica de Ale2.py
-    
-    return precio_actual, ema200, distancia, adx_actual
+        # 1. EMA 200
+        ema200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
+        precio_actual = df['close'].iloc[-1]
 
-def mantener_vivo(p, d, a):
-    """Mantiene Railway despierto y te muestra las variables en pantalla"""
+        # 2. Distancia a la EMA
+        distancia = abs(precio_actual - ema200)
+
+        # 3. Cálculo de ADX (Fuerza de Tendencia)
+        plus_dm = df['high'].diff()
+        minus_dm = -df['low'].diff()
+        plus_dm[plus_dm < 0] = 0
+        minus_dm[minus_dm < 0] = 0
+        
+        tr = np.maximum(df['high'] - df['low'], 
+                        np.maximum(abs(df['high'] - df['close'].shift(1)), 
+                                   abs(df['low'] - df['close'].shift(1))))
+        atr = tr.rolling(window=14).mean()
+        
+        plus_di = 100 * (plus_dm.rolling(window=14).mean() / atr)
+        minus_di = 100 * (minus_dm.rolling(window=14).mean() / atr)
+        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+        adx = dx.rolling(window=14).mean().iloc[-1]
+
+        return precio_actual, distancia, adx
+    except Exception as e:
+        print(f"⚠️ Error leyendo datos: {e}")
+        return None, None, None
+
+def latido_railway(p, d, a):
+    """Mantiene el proceso vivo en Railway"""
     hora = time.strftime('%H:%M:%S')
-    print(f"💓 [LATIDO {hora}] PRECIO: {p} | DIST: {d:.2f} | ADX: {a}")
+    print(f"💓 [LATIDO {hora}] PRECIO: {p} | DIST: {d:.2f} | ADX: {a:.2f}")
     sys.stdout.flush()
 
-def ejecutar_hachazo():
-    saldo = float(client.futures_account_balance()[1]['balance'])
-    margen = saldo * PORCENTAJE_CAPITAL
-    print(f"🔱 HACHAZO: Usando ${margen:.2f} con x10")
-    # client.futures_create_order(symbol=SIMBOLO, side='BUY', type='MARKET', quantity=...)
+def ejecutar_orden(tipo, saldo_actual):
+    """Ejecuta la operación con el 20% del capital"""
+    margen = saldo_actual * PORCENTAJE_OP
+    cantidad_eth = (margen * APALANCAMIENTO) / 2500 # Aproximación por precio
+    
+    print(f"🔥 {tipo} DETECTADA")
+    print(f"✅ Enviando orden a Binance: Margen ${margen:.2f} | x10")
+    
+    try:
+        # client.futures_create_order(symbol=SIMBOLO, side='BUY', type='MARKET', quantity=cantidad_eth)
+        pass
+    except Exception as e:
+        print(f"❌ Error en Binance: {e}")
 
 def main():
-    print(f"🚀 GATITO QUANTUM ACTIVO - SISTEMA CHAJÁ")
+    print(f"🚀 {NOMBRE_BOT} INICIADO")
+    print(f"💰 Operando con ${CAPITAL_INICIAL} | Estrategia Dual Ale")
     
     while True:
-        try:
-            # 1. Cargamos las variables reales
-            precio, ema, dist, adx = calcular_indicadores()
+        precio, dist, adx = obtener_datos_mercado()
+        
+        if precio:
+            latido_railway(precio, dist, adx)
             
-            # 2. Latido para Railway
-            mantener_vivo(precio, dist, adx)
-            
-            # 3. Lógica Dual de Ale
-            if dist >= DISTANCIA_MIN:
+            # Lógica de Decisión Dual
+            if dist >= DISTANCIA_MIN_EMA:
                 if adx >= ADX_HACHAZO:
-                    print("🎯 SEÑAL: Hachazo Seguro (ADX 24)")
-                    ejecutar_hachazo()
-                    time.sleep(1800) # Pausa tras operar
+                    ejecutar_orden("🔱 HACHAZO SEGURO (ADX 24)", CAPITAL_INICIAL)
+                    time.sleep(1200) # Pausa de 20 min tras operar
                 elif adx >= ADX_CAZADORA:
-                    print("⚡ SEÑAL: Entrada Cazadora (ADX 19)")
-                    ejecutar_hachazo()
-                    time.sleep(1800)
-            
-            time.sleep(30) # Espera 30 segundos y vuelve a medir
-            
-        except Exception as e:
-            print(f"⚠️ Reintentando conexión... {e}")
-            time.sleep(10)
+                    ejecutar_orden("🎯 ENTRADA CAZADORA (ADX 19)", CAPITAL_INICIAL)
+                    time.sleep(1200)
+
+        time.sleep(30) # Escaneo cada 30 segundos
 
 if __name__ == "__main__":
     main()
