@@ -2,18 +2,18 @@ import time
 import sys
 import pandas as pd
 import numpy as np
-# Importación segura para evitar el error 'Client is not defined'
+# Importación blindada para Binance
 try:
     from binance.client import Client
 except ImportError:
-    print("❌ Error: Instala python-binance")
+    print("❌ Error: Falta instalar python-binance")
 
-# --- CONFIGURACIÓN DE IDENTIDAD (Corregido error NOMBRE_BOT) ---
+# --- CONFIGURACIÓN DE IDENTIDAD ---
 NOMBRE_BOT = "GATITO QUANTUM v6 GOLD"
 API_KEY = 'TU_API_KEY_AQUI'
 SECRET_KEY = 'TU_SECRET_KEY_AQUI'
 
-# --- PARÁMETROS ESTRATÉGICOS ---
+# --- PARÁMETROS ESTRATÉGICOS (Tu Capital) ---
 SIMBOLO = 'ETHUSDT'
 CAPITAL_TOTAL = 36.02
 PORCENTAJE_OP = 0.20
@@ -26,7 +26,7 @@ ADX_CAZADORA = 19.0
 client = Client(API_KEY, SECRET_KEY)
 
 def obtener_indicadores():
-    """Calcula variables reales y maneja el error de 'close'"""
+    """Calcula variables reales y soluciona el error de 'close'"""
     try:
         klines = client.futures_klines(symbol=SIMBOLO, interval='5m', limit=100)
         if not klines:
@@ -39,8 +39,8 @@ def obtener_indicadores():
         precio = df['close'].iloc[-1]
         distancia = abs(precio - ema200)
         
-        # Simulación de ADX para el ejemplo
-        adx_actual = 19.5 
+        # Aquí va tu lógica de ADX de Ale2.py
+        adx_actual = 20.0 
         
         return precio, distancia, adx_actual
     except Exception as e:
@@ -51,11 +51,11 @@ def latido_quantum(p, d, a):
     """Evita el 'Stopping Container' manteniendo el log activo"""
     hora = time.strftime('%H:%M:%S')
     print(f"💓 [LATIDO {hora}] P: {p} | DIST: {d:.2f} | ADX: {a}")
-    sys.stdout.flush() # Comando clave para Railway
+    sys.stdout.flush() # Comando maestro para Railway
 
 def main():
     print(f"🚀 {NOMBRE_BOT} INICIADO")
-    print(f"💰 Capital: ${CAPITAL_TOTAL} | Estrategia Dual (19/24)")
+    print(f"💰 Capital: ${CAPITAL_TOTAL} | Dual (19/24)")
     
     while True:
         precio, dist, adx = obtener_indicadores()
