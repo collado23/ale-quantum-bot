@@ -5,7 +5,7 @@ from threading import Thread
 
 app = Flask('')
 @app.route('/')
-def home(): return "🛡️ Gladiador Activo", 200
+def home(): return "🛡️ Online", 200
 def run_flask():
     p = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=p)
@@ -14,11 +14,9 @@ Thread(target=run_flask, daemon=True).start()
 def ejecutar_sistema():
     sym = 'ETHUSDT'
     try:
-        api, sec = os.getenv('API_KEY'), os.getenv('API_SECRET')
-        client = Client(api, sec)
-        print("⚔️ Ale2: Conectado")
+        client = Client(os.getenv('API_KEY'), os.getenv('API_SECRET'))
+        print("⚔️ Conectado")
     except: return
-
     while True:
         try:
             dec, p, vc, vv = IA_Estratega.analizar_mercado(client, sym)
@@ -29,11 +27,10 @@ def ejecutar_sistema():
                 bal = client.futures_account_balance()
                 cap = next(float(b['balance']) for b in bal if b['asset'] == 'USDT')
                 qty = round(((cap * 0.20) * 10) / p, 3)
-                side = 'BUY' if dec == "LONG" else 'SELL'
-                client.futures_create_order(symbol=sym, side=side, type='MARKET', quantity=qty)
+                client.futures_create_order(symbol=sym, side='BUY' if dec=="LONG" else 'SELL', type='MARKET', quantity=qty)
             elif amt != 0 and ((amt > 0 and dec == "SHORT") or (amt < 0 and dec == "LONG")):
                 client.futures_create_order(symbol=sym, side='SELL' if amt > 0 else 'BUY', type='MARKET', quantity=abs(amt))
-        except Exception as e: print(f"⚠️ Error: {e}")
+        except: pass
         sys.stdout.flush()
         time.sleep(20)
 
