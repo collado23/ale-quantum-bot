@@ -14,15 +14,15 @@ def ejecutar_sistema():
 
     while True:
         try:
-            # --- LA LÍNEA MÁGICA ---
-            # Guardamos todo en una lista llamada 'datos' para que no haya error de 'unpack'
-            datos = IA_Estratega.analizar_mercado(client, sym)
+            # --- SOLUCIÓN AL ERROR DE UNPACK ---
+            # Leemos todo lo que mande el cerebro en una lista
+            lectura = IA_Estratega.analizar_mercado(client, sym)
             
-            dec = datos[0]    # Señal
-            p = datos[1]      # Precio
-            adx = datos[2]    # ADX
-            # Si el cerebro mandó volumen, lo usamos; si no, ponemos 0
-            vol = datos[3] if len(datos) > 3 else 0
+            dec = lectura[0]    # Señal (LONG/SHORT/ESPERAR)
+            p = lectura[1]      # Precio actual
+            adx = lectura[2]    # ADX (Filtro > 25)
+            # Si hay volumen lo toma, si no, pone 0 para no dar error
+            vol = lectura[3] if len(lectura) > 3 else 0
             
             pos = client.futures_position_information(symbol=sym)
             amt = next(float(i['positionAmt']) for i in pos if i['symbol'] == sym)
@@ -32,7 +32,7 @@ def ejecutar_sistema():
             if amt == 0 and dec in ["LONG", "SHORT"]:
                 bal = client.futures_account_balance()
                 cap = next(float(b['balance']) for b in bal if b['asset'] == 'USDT')
-                qty = round(((cap * 0.20) * 10) / p, 3)
+                qty = round(((cap * 0.20) * 10) / p, 3) # 20% Capital x10
                 
                 side = 'BUY' if dec == "LONG" else 'SELL'
                 client.futures_create_order(symbol=sym, side=side, type='MARKET', quantity=qty)
@@ -48,7 +48,7 @@ def ejecutar_sistema():
             elif amt != 0 and ((amt > 0 and dec == "SHORT") or (amt < 0 and dec == "LONG")):
                 client.futures_cancel_all_open_orders(symbol=sym)
                 client.futures_create_order(symbol=sym, side='SELL' if amt > 0 else 'BUY', type='MARKET', quantity=abs(amt))
-                print("🛑 Cierre por cambio de señal")
+                print("🛑 Cambio de señal: Cierre total")
 
         except Exception as e:
             print(f"⚠️ Alerta en ciclo: {e}")
