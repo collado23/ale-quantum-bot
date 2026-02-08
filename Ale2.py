@@ -3,28 +3,26 @@ import pandas as pd
 import numpy as np
 from binance.client import Client
 
-# 1. CONFIGURACIÓN DE SEGURIDAD
+# 1. CONFIGURACIÓN
 symbol = 'ETHUSDT'
 
 def ejecutar_gladiador():
-    # Recuperamos las llaves que ya tenés cargadas en Railway
     api_key = os.getenv('API_KEY')
     api_secret = os.getenv('API_SECRET')
 
-    print("🚀 INICIANDO SISTEMA ALE-IA-QUANTUM...")
+    print("🚀 INICIANDO SISTEMA REFORZADO...")
     
     try:
         client = Client(api_key, api_secret)
-        # Test de conexión rápido
         client.futures_ping()
-        print("⚔️ CONEXIÓN EXITOSA CON BINANCE FUTURES")
+        print("⚔️ CONEXIÓN EXITOSA - EL MOTOR ESTÁ VIVO")
     except Exception as e:
-        print(f"❌ ERROR CRÍTICO DE LLAVES O REGIÓN: {e}")
+        print(f"❌ ERROR API: {e}")
         return
 
     while True:
         try:
-            # 2. CARGA DE DATOS (300 VELAS PARA PRECISIÓN)
+            # 2. DATOS (300 VELAS)
             k = client.futures_klines(symbol=symbol, interval='5m', limit=300)
             df = pd.DataFrame(k, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
             df['close'] = pd.to_numeric(df['c'])
@@ -34,7 +32,7 @@ def ejecutar_gladiador():
             p_act = df['close'].iloc[-1]
             ema = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
             
-            # ADX PROFESIONAL (Filtro de tendencia)
+            # ADX
             p_dm = (df['high'].diff()).clip(lower=0)
             m_dm = (-df['low'].diff()).clip(lower=0)
             tr = np.maximum(df['high']-df['low'], np.maximum(abs(df['high']-df['close'].shift(1)), abs(df['low']-df['close'].shift(1))))
@@ -47,7 +45,7 @@ def ejecutar_gladiador():
             pos = client.futures_position_information(symbol=symbol)
             amt = next(float(i['positionAmt']) for i in pos if i['symbol'] == symbol)
 
-            # 4. LÓGICA DE OPERACIÓN
+            # 4. LÓGICA
             dec = "ESPERAR"
             if adx > 25:
                 if p_act > ema and p_di > m_di: dec = "LONG"
@@ -55,19 +53,24 @@ def ejecutar_gladiador():
 
             print(f"🔎 ETH: {p_act} | ADX: {round(adx,1)} | Señal: {dec} | Pos: {amt}")
 
-            # 5. GESTIÓN DE CAPITAL (20% COMPUESTO X10)
+            # 5. GESTIÓN DE ORDEN (Protección contra cierres)
             if amt == 0 and dec in ["LONG", "SHORT"]:
                 bal = client.futures_account_balance()
-                # Buscamos el saldo USDT disponible
                 cap = next(float(b['balance']) for b in bal if b['asset'] == 'USDT')
                 
-                # Cantidad = (Capital * 20% * 10 apalancamiento) / precio
+                # Ajuste de cantidad (mínimo 0.001 ETH para Binance)
                 qty = round(((cap * 0.20) * 10) / p_act, 3)
+                if qty < 0.001: qty = 0.001
                 
                 side = 'BUY' if dec == "LONG" else 'SELL'
-                client.futures_create_order(symbol=symbol, side=side, type='MARKET', quantity=qty)
                 
-                # ESCUDO TRAILING 0.9% (Distancia 9 en callbackRate)
+                # Ejecutar entrada
+                client.futures_create_order(symbol=symbol, side=side, type='MARKET', quantity=qty)
+                print(f"🚀 ENTRADA: {dec} de {qty} ETH")
+                
+                time.sleep(2) # Respiro para Binance
+                
+                # Escudo Trailing 0.9%
                 inv = 'SELL' if side == 'BUY' else 'BUY'
                 client.futures_create_order(
                     symbol=symbol, 
@@ -77,13 +80,13 @@ def ejecutar_gladiador():
                     quantity=qty, 
                     reduceOnly=True
                 )
-                print(f"🚀 ENTRADA EJECUTADA: {dec} | Qty: {qty} | Trailing: 0.9%")
+                print("🛡️ ESCUDO ACTIVADO")
 
         except Exception as e:
-            print(f"⚠️ Aviso de Ciclo: {e}")
-            time.sleep(10)
+            # ESTO ES CLAVE: Si hay un error, el bot NO se apaga, solo avisa.
+            print(f"⚠️ Nota de sistema: {e}")
+            time.sleep(15)
         
-        # Obligamos a Railway a mostrar el log
         sys.stdout.flush()
         time.sleep(20)
 
