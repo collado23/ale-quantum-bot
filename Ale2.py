@@ -1,85 +1,115 @@
-import time, os, sys
+import os
+import time
 import pandas as pd
-import numpy as np
+import pandas_ta as ta
 from binance.client import Client
+from binance.enums import *
 
-# CONFIGURACIÓN
+# --- CONFIGURACIÓN ---
+api_key = os.getenv('BINANCE_API_KEY')
+api_secret = os.getenv('BINANCE_API_SECRET')
+client = Client(api_key, api_secret)
+
 symbol = 'ETHUSDT'
+leverage = 10
+capital_percent = 0.20  # Usamos el 20% de tu capital (aprox 6.9 USDT)
 
-def ejecutar():
-    print("🚀 GLADIADOR ALE-V5: BLINDAJE TOTAL")
-    try:
-        # Usamos las llaves guardadas en Railway
-        client = Client(os.getenv('API_KEY'), os.getenv('API_SECRET'))
-        print("⚔️ MOTOR CONECTADO A BINANCE")
-    except Exception as e:
-        print(f"❌ Error API: {e}"); return
+def obtener_datos():
+    # Velas de 5 minutos para captar tendencias rápidas
+    klines = client.futures_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_5MINUTE, limit=300)
+    df = pd.DataFrame(klines, columns=['time', 'open', 'high', 'low', 'close', 'vol', 'close_time', 'qav', 'num_trades', 'taker_base', 'taker_quote', 'ignore'])
+    df['close'] = df['close'].astype(float)
+    df['high'] = df['high'].astype(float)
+    df['low'] = df['low'].astype(float)
+    return df
+
+def ejecutar_gladiador():
+    print(f"🔱 ALE2.py ACTUALIZADO - FILTRO MACD + TRAILING 0.5% - {symbol}")
+    
+    # Aseguramos el apalancamiento x10
+    client.futures_change_leverage(symbol=symbol, leverage=leverage)
 
     while True:
         try:
-            # 1. DATOS VELOCES
-            k = client.futures_klines(symbol=symbol, interval='5m', limit=300)
-            df = pd.DataFrame(k).iloc[:, :6]
-            df.columns = ['t','o','h','l','c','v']
-            df = df.astype(float)
-
-            # 2. CÁLCULOS (EMA 200 y ADX)
-            p_act = df['c'].iloc[-1]
-            ema = df['c'].ewm(span=200, adjust=False).mean().iloc[-1]
-            dist = p_act - ema
+            df = obtener_datos()
             
-            # ADX Profesional
-            up = df['h'].diff(); down = -df['l'].diff()
-            p_dm = up.where((up > down) & (up > 0), 0).rolling(14).mean()
-            m_dm = down.where((down > up) & (down > 0), 0).rolling(14).mean()
-            tr = np.maximum(df['h']-df['l'], np.maximum(abs(df['h']-df['c'].shift(1)), abs(df['l']-df['c'].shift(1)))).rolling(14).mean()
+            # --- CÁLCULO DE INDICADORES ---
+            # 1. EMA 200
+            df['ema_200'] = ta.ema(df['close'], length=200)
+            ema_val = df['ema_200'].iloc[-1]
             
-            # Evitar división por cero
-            tr_val = tr.iloc[-1]
-            p_di = 100 * (p_dm.iloc[-1] / tr_val) if tr_val != 0 else 0
-            m_di = 100 * (m_dm.iloc[-1] / tr_val) if tr_val != 0 else 0
-            adx = 100 * abs(p_di - m_di) / (p_di + m_di) if (p_di + m_di) != 0 else 0
-
-            # 3. CAPITAL Y POSICIÓN (Blindado contra 'index out of range')
-            bal = client.futures_account_balance()
-            cap = next((float(b['balance']) for b in bal if b['asset'] == 'USDT'), 0.0)
+            # 2. ADX (Fuerza)
+            adx_df = ta.adx(df['high'], df['low'], df['close'], length=14)
+            adx_val = adx_df['ADX_14'].iloc[-1]
             
-            pos = client.futures_position_information(symbol=symbol)
-            # ESCUDO: Si la lista está vacía o no encuentra el símbolo, amt = 0
-            amt = 0.0
-            if pos:
-                for p in pos:
-                    if p['symbol'] == symbol:
-                        amt = float(p['positionAmt'])
-                        break
+            # 3. MACD (Dirección - El nuevo escudo)
+            macd_df = ta.macd(df['close'], fast=12, slow=26, signal=9)
+            macd_line = macd_df['MACD_12_26_9'].iloc[-1]
+            macd_signal = macd_df['MACDs_12_26_9'].iloc[-1]
+            
+            precio = df['close'].iloc[-1]
+            distancia = ((precio - ema_val) / ema_val) * 100
+            
+            # --- REVISAR POSICIÓN ---
+            posiciones = client.futures_position_information(symbol=symbol)
+            datos_pos = next(p for p in posiciones if p['symbol'] == symbol)
+            en_posicion = float(datos_pos['positionAmt']) != 0
 
-            # 4. LÓGICA (ADX 26 | DIST 9)
-            dec = "ESPERAR"
-            if adx > 26 and abs(dist) > 9:
-                if p_act > ema and p_di > m_di: dec = "LONG"
-                elif p_act < ema and m_di > p_di: dec = "SHORT"
+            if not en_posicion:
+                # ESTRATEGIA PARA SHORT (Venta)
+                # Filtros: ADX alto, Lejos de EMA y MACD cruzado hacia abajo
+                if adx_val > 26 and distancia < -9 and macd_line < macd_signal:
+                    print(f"🔥 DISPARO SHORT: ADX {adx_val:.2f} | MACD Confirmado | Dist {distancia:.2f}")
+                    
+                    balance = float(client.futures_account_balance()[1]['balance'])
+                    cantidad = (balance * capital_percent * leverage) / precio
+                    
+                    # Orden de Mercado
+                    client.futures_create_order(symbol=symbol, side=SIDE_SELL, type=ORDER_TYPE_MARKET, quantity=round(cantidad, 3))
+                    
+                    # Trailing Stop ajustado al 0.5% para evitar picos
+                    client.futures_create_order(
+                        symbol=symbol,
+                        side=SIDE_BUY,
+                        type='TRAILING_STOP_MARKET',
+                        quantity=round(cantidad, 3),
+                        callbackRate=0.5,
+                        workingType='MARK_PRICE'
+                    )
+                    print("✅ SHORT ABIERTO - TRAILING 0.5% ACTIVADO")
 
-            # 🔱 EL TABLERO (Ahora sí tiene que salir)
-            print(f"🔎 ETH: {p_act} | ADX: {round(adx,1)}/26 | Dist: {round(dist,1)}/9 | Cap: {round(cap,1)} | {dec}")
+                # ESTRATEGIA PARA LONG (Compra)
+                elif adx_val > 26 and distancia > 9 and macd_line > macd_signal:
+                    print(f"🚀 DISPARO LONG: ADX {adx_val:.2f} | MACD Confirmado | Dist {distancia:.2f}")
+                    
+                    balance = float(client.futures_account_balance()[1]['balance'])
+                    cantidad = (balance * capital_percent * leverage) / precio
+                    
+                    client.futures_create_order(symbol=symbol, side=SIDE_BUY, type=ORDER_TYPE_MARKET, quantity=round(cantidad, 3))
+                    
+                    client.futures_create_order(
+                        symbol=symbol,
+                        side=SIDE_SELL,
+                        type='TRAILING_STOP_MARKET',
+                        quantity=round(cantidad, 3),
+                        callbackRate=0.5,
+                        workingType='MARK_PRICE'
+                    )
+                    print("✅ LONG ABIERTO - TRAILING 0.5% ACTIVADO")
 
-            # 5. EJECUCIÓN
-            if amt == 0 and dec in ["LONG", "SHORT"]:
-                qty = round(((cap * 0.20) * 10) / p_act, 3)
-                if qty < 0.001: qty = 0.001
-                side = 'BUY' if dec == "LONG" else 'SELL'
-                client.futures_create_order(symbol=symbol, side=side, type='MARKET', quantity=qty)
-                
-                time.sleep(2)
-                inv = 'SELL' if side == 'BUY' else 'BUY'
-                client.futures_create_order(symbol=symbol, side=inv, type='TRAILING_STOP_MARKET', callbackRate=0.9, quantity=qty, reduceOnly=True)
-                print(f"🔥 DISPARO: {dec} | Qty: {qty}")
+                else:
+                    # Log para saber qué falta para entrar
+                    estado_macd = "OK" if (macd_line < macd_signal and distancia < 0) or (macd_line > macd_signal and distancia > 0) else "ESPERAR"
+                    print(f"🔎 ETH: {precio} | ADX: {adx_val:.2f} | MACD: {estado_macd} | ESPERAR")
+            
+            else:
+                print(f"🛡️ ALE2: POSICIÓN ACTIVA - PRECIO: {precio} - MONITOREANDO...")
+
+            time.sleep(30) # Revisa cada 30 segundos
 
         except Exception as e:
-            print(f"📡 Aviso (Reintentando): {e}")
-            time.sleep(15) # Pausa más larga para dejar respirar a la API
-        
-        sys.stdout.flush()
-        time.sleep(20)
+            print(f"❌ ERROR EN ALE2: {e}")
+            time.sleep(10)
 
 if __name__ == "__main__":
-    ejecutar()
+    ejecutar_gladiador()
