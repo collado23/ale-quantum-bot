@@ -4,18 +4,13 @@ from binance.client import Client
 def ejecutar_sistema():
     sym = 'ETHUSDT'
     try:
-        # Cargamos llaves desde Railway Variables
-        api = os.getenv('API_KEY')
-        sec = os.getenv('API_SECRET')
-        client = Client(api, sec)
+        client = Client(os.getenv('API_KEY'), os.getenv('API_SECRET'))
         print("⚔️ Gladiador ETH: Conexión Exitosa")
-    except Exception as e:
-        print(f"❌ Error de Conexión: {e}")
-        return
+    except: return
 
     while True:
         try:
-            # Analizamos con ADX 25 y Distancia 9
+            # AHORA RECIBE 3 VALORES (Igual que el cerebro)
             dec, p, adx = IA_Estratega.analizar_mercado(client, sym)
             pos = client.futures_position_information(symbol=sym)
             amt = next(float(i['positionAmt']) for i in pos if i['symbol'] == sym)
@@ -30,7 +25,7 @@ def ejecutar_sistema():
                 side = 'BUY' if dec == "LONG" else 'SELL'
                 client.futures_create_order(symbol=sym, side=side, type='MARKET', quantity=qty)
                 
-                # TRAILING STOP DE 0.9% (DISTANCIA 9)
+                # TRAILING STOP DE 0.9% (TU DISTANCIA 9)
                 inv_side = 'SELL' if side == 'BUY' else 'BUY'
                 client.futures_create_order(
                     symbol=sym, side=inv_side, type='TRAILING_STOP_MARKET', 
@@ -47,7 +42,7 @@ def ejecutar_sistema():
             print(f"⚠️ Alerta: {e}")
         
         sys.stdout.flush()
-        time.sleep(30) # Pausa de 30 segundos para no saturar
+        time.sleep(30)
 
 if __name__ == "__main__":
     ejecutar_sistema()
