@@ -1,9 +1,10 @@
 import pandas as pd
 import numpy as np
+import os
 
 def analizar_mercado(client, simbolo):
     try:
-        # Velas de 5 minutos
+        # 1. Traer datos
         k = client.futures_klines(symbol=simbolo, interval='5m', limit=100)
         df = pd.DataFrame(k, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
         df['close'] = pd.to_numeric(df['c'])
@@ -13,7 +14,7 @@ def analizar_mercado(client, simbolo):
         p_act = df['close'].iloc[-1]
         ema = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
         
-        # ADX Manual (Filtro > 25)
+        # 2. ADX Manual (Filtro 25 para evitar zigzag)
         p_dm = (df['high'].diff()).clip(lower=0)
         m_dm = (-df['low'].diff()).clip(lower=0)
         tr = np.maximum(df['high']-df['low'], np.maximum(abs(df['high']-df['close'].shift(1)), abs(df['low']-df['close'].shift(1))))
@@ -22,11 +23,18 @@ def analizar_mercado(client, simbolo):
         m_di = 100 * (m_dm.rolling(14).mean() / atr).iloc[-1]
         adx = (100 * abs(p_di - m_di) / (p_di + m_di)) if (p_di + m_di) != 0 else 0
         
-        # Volumen Compras vs Ventas
+        # 3. Volumen
         depth = client.futures_order_book(symbol=simbolo, limit=50)
         v_c = sum(float(b[1]) for b in depth['bids'])
         v_v = sum(float(a[1]) for a in depth['asks'])
         
+        # 4. MEMORIA: Revisar si el último error fue en este mismo precio
+        if os.path.exists("error_log.txt"):
+            with open("error_log.txt", "r") as f:
+                ultimo_error = f.read()
+                if str(round(p_act, 1)) in ultimo_error:
+                    return "ESPERAR", p_act, adx, (v_c - v_v)
+
         res = "ESPERAR"
         if adx > 25:
             if p_act > ema and p_di > m_di and v_c > v_v: res = "LONG"
