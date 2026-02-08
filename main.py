@@ -7,17 +7,16 @@ from binance.client import Client
 from threading import Thread, Lock
 from flask import Flask
 
-# --- PIZARRA DE MEMORIA (Compartida entre Cerebro y Ejecutor) ---
+# --- 🧠 PIZARRA DE DATOS (Memoria compartida entre Cerebro y Ejecutor) ---
 pizarra = {
-    "accion": "ESPERAR",
+    "señal": "ESPERAR",
     "precio": 0,
-    "vol_comp": 0,
-    "vol_vent": 0,
     "ema": 0,
-    "qty": 0,
+    "vol_c": 0,
+    "vol_v": 0,
     "status": "Iniciando..."
 }
-lock = Lock()
+candado = Lock()
 
 # ==========================================
 # 🛡️ 1. EL EJECUTOR (Mantiene vivo el bot y opera)
@@ -25,31 +24,29 @@ lock = Lock()
 app = Flask('')
 
 @app.route('/')
-def live():
-    with lock:
-        return f"🔱 Gladiador Activo - Estado: {pizarra['status']} | Acción: {pizarra['accion']}", 200
+def health():
+    with candado:
+        # Railway verá que el bot siempre está respondiendo
+        return f"🔱 Gladiador Activo - Estado: {pizarra['status']} | Señal: {pizarra['señal']}", 200
 
-def run_web():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+def servidor_web():
+    puerto = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=puerto)
 
-# Lanzamos al ejecutor web de inmediato
-Thread(target=run_web, daemon=True).start()
+# Lanzamos el servidor de vida de inmediato
+Thread(target=servidor_web, daemon=True).start()
 
 # ==========================================
-# 🛡️ 2. EL CEREBRO (Análisis Industrial)
+# 🛡️ 2. EL CEREBRO (Analista Industrial de 500 Puntas)
 # ==========================================
-SIMBOLO = 'ETHUSDT'
-PORCENTAJE_OP = 0.20
-LEVERAGE = 10
-
 def cerebro_analista():
+    SIMBOLO = 'ETHUSDT'
     client = Client(os.getenv('API_KEY'), os.getenv('API_SECRET'))
-    print("🧠 Cerebro Analista: Despierto y conectando...")
+    print("🧠 Cerebro: Analizando mercado...")
     
     while True:
         try:
-            # 📊 Análisis de 300 Velas y DMI
+            # 📊 Velas y DMI (300 velas para precisión total)
             klines = client.futures_klines(symbol=SIMBOLO, interval='5m', limit=300)
             df = pd.DataFrame(klines, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
             df['close'] = pd.to_numeric(df['c'])
@@ -59,79 +56,86 @@ def cerebro_analista():
             p_act = df['close'].iloc[-1]
             ema_200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
             
-            # DMI / ADX
+            # Cálculos de DMI para filtrar entradas
             plus_dm = df['high'].diff().clip(lower=0)
             minus_dm = (-df['low'].diff()).clip(lower=0)
             tr = np.maximum(df['high'] - df['low'], np.maximum(abs(df['high'] - df['close'].shift(1)), abs(df['low'] - df['close'].shift(1))))
             atr = tr.rolling(window=14).mean()
             p_di = 100 * (plus_dm.rolling(window=14).mean() / atr).iloc[-1]
             m_di = 100 * (minus_dm.rolling(window=14).mean() / atr).iloc[-1]
-            adx_val = (100 * abs(p_di - m_di) / (p_di + m_di)) if (p_di + m_di) != 0 else 0
-            
-            # 📚 Análisis de 500 Puntas del Libro
-            depth = client.futures_order_book(symbol=SIMBOLO, limit=500)
-            v_comp = sum(float(bid[1]) for bid in depth['bids'])
-            v_vent = sum(float(ask[1]) for ask in depth['asks'])
+            adx = (100 * abs(p_di - m_di) / (p_di + m_di)) if (p_di + m_di) != 0 else 0
 
-            # Escribir conclusiones en la pizarra
-            with lock:
+            # 📚 Libro de 500 Puntas (Tu estrategia estrella)
+            depth = client.futures_order_book(symbol=SIMBOLO, limit=500)
+            vol_c = sum(float(b[1]) for b in depth['bids'])
+            vol_v = sum(float(a[1]) for a in depth['asks'])
+
+            # Escribir en la pizarra para el soldado
+            with candado:
                 pizarra['precio'] = p_act
                 pizarra['ema'] = ema_200
-                pizarra['vol_comp'] = v_comp
-                pizarra['vol_vent'] = v_vent
+                pizarra['vol_c'] = vol_c
+                pizarra['vol_v'] = vol_v
                 
-                if p_act > (ema_200 + 1) and p_di > (m_di + 12) and adx_val > 25 and v_comp > v_vent:
-                    pizarra['accion'] = "COMPRAR"
-                elif p_act < (ema_200 - 1) and m_di > (p_di + 12) and adx_val > 25 and v_vent > v_comp:
-                    pizarra['accion'] = "VENDER"
+                # Definición de señal
+                if p_act > (ema_200 + 1) and p_di > (m_di + 12) and adx > 25 and vol_c > vol_v:
+                    pizarra['señal'] = "LONG"
+                elif p_act < (ema_200 - 1) and m_di > (p_di + 12) and adx > 25 and vol_v > vol_c:
+                    pizarra['señal'] = "SHORT"
                 else:
-                    pizarra['accion'] = "ESPERAR"
+                    pizarra['señal'] = "ESPERAR"
                 
-                pizarra['status'] = "Analizado 500/300 OK"
+                pizarra['status'] = "Análisis 500/300 Completado"
 
         except Exception as e:
-            print(f"🧠 Cerebro: Error de saturación, reiniciando ciclo... {e}")
+            print(f"🧠 Cerebro: Esperando datos... {e}")
             time.sleep(10)
         
         time.sleep(15)
 
 # ==========================================
-# 🛡️ 3. EL SOLDADO (Ejecución de órdenes)
+# 🛡️ 3. EL SOLDADO (Compra y Venta)
 # ==========================================
 def soldado_ejecutor():
+    SIMBOLO = 'ETHUSDT'
     client = Client(os.getenv('API_KEY'), os.getenv('API_SECRET'))
+    print("⚔️ Soldado: Listo para ejecutar órdenes.")
+    
     while True:
         try:
-            with lock:
-                accion = pizarra['accion']
-                p = pizarra['precio']
-                v_c = pizarra['vol_comp']
-            
-            # Revisar si ya hay posición
+            with candado:
+                señal = pizarra['señal']
+                p_actual = pizarra['precio']
+
+            # Revisar posición actual
             pos = client.futures_position_information(symbol=SIMBOLO)
             amt = next(float(i['positionAmt']) for i in pos if i['symbol'] == SIMBOLO)
 
-            if amt == 0 and accion != "ESPERAR":
+            if amt == 0 and señal != "ESPERAR":
+                # Interés Compuesto (20% de capital)
                 balance = client.futures_account_balance()
                 cap = next(float(b['balance']) for b in balance if b['asset'] == 'USDT')
-                qty = round(((cap * PORCENTAJE_OP) * LEVERAGE) / p, 3)
+                qty = round(((cap * 0.20) * 10) / p_actual, 3)
                 
-                side = 'BUY' if accion == "COMPRAR" else 'SELL'
+                side = 'BUY' if señal == "LONG" else 'SELL'
                 client.futures_create_order(symbol=SIMBOLO, side=side, type='MARKET', quantity=qty)
-                print(f"⚔️ SOLDADO: Orden {side} ejecutada por orden del Cerebro.")
+                print(f"⚔️ SOLDADO: ¡Ataque {side} enviado!")
             
             elif amt != 0:
-                # Lógica de cierre si el cerebro cambia de opinión
-                if (amt > 0 and accion == "VENDER") or (amt < 0 and accion == "COMPRAR"):
+                # Cierre si la señal cambia o el precio cruza la EMA
+                if (amt > 0 and señal == "SHORT") or (amt < 0 and señal == "LONG"):
                     client.futures_create_order(symbol=SIMBOLO, side='SELL' if amt > 0 else 'BUY', type='MARKET', quantity=abs(amt))
-                    print("⚔️ SOLDADO: Posición cerrada.")
+                    print("⚔️ SOLDADO: Posición cerrada por orden del Cerebro.")
 
         except Exception as e:
-            print(f"⚔️ Soldado: Esperando señal... {e}")
-        
+            # El soldado no se rinde, sigue esperando la pizarra
+            pass
+            
+        sys.stdout.flush()
         time.sleep(5) # El soldado vigila la pizarra cada 5 segundos
 
-# Lanzamos los hilos
 if __name__ == "__main__":
+    # Arrancamos el Cerebro en segundo plano
     Thread(target=cerebro_analista, daemon=True).start()
+    # El Soldado corre en el proceso principal
     soldado_ejecutor()
