@@ -1,7 +1,7 @@
 import os
 import time
 
-# Instalación automática de la librería de indicadores
+# Instalación automática de la librería si falta
 try:
     import pandas_ta as ta
 except ImportError:
@@ -12,9 +12,9 @@ import pandas as pd
 from binance.client import Client
 from binance.enums import *
 
-# --- CONEXIÓN DIRECTA (Asegurada para Railway) ---
-api_key = os.environ.get('BINANCE_API_KEY')
-api_secret = os.environ.get('BINANCE_API_SECRET')
+# --- CONEXIÓN (Volvemos al formato que te funcionaba antes) ---
+api_key = os.getenv('BINANCE_API_KEY')
+api_secret = os.getenv('BINANCE_API_SECRET')
 client = Client(api_key, api_secret)
 
 symbol = 'ETHUSDT'
@@ -30,8 +30,9 @@ def obtener_datos():
     return df
 
 def ejecutar_gladiador():
-    print(f"🔱 ALE2.py ACTIVO - ETHUSDT - MACD + TRAILING 0.5%")
+    print(f"🔱 ALE2.py RECONECTADO - MACD + TRAILING 0.5% - {symbol}")
     
+    # Intentamos cambiar apalancamiento, si da error de API lo saltamos para no frenar el bot
     try:
         client.futures_change_leverage(symbol=symbol, leverage=leverage)
     except:
@@ -48,6 +49,7 @@ def ejecutar_gladiador():
             adx_df = ta.adx(df['high'], df['low'], df['close'], length=14)
             adx_val = adx_df['ADX_14'].iloc[-1]
             
+            # MACD para evitar los "picos"
             macd_df = ta.macd(df['close'], fast=12, slow=26, signal=9)
             macd_l = macd_df['MACD_12_26_9'].iloc[-1]
             macd_s = macd_df['MACDs_12_26_9'].iloc[-1]
@@ -57,37 +59,37 @@ def ejecutar_gladiador():
             
             # --- ESTADO DE POSICIÓN ---
             pos = client.futures_position_information(symbol=symbol)
-            en_vuelo = float(pos[0]['positionAmt']) != 0
+            datos_pos = next(p for p in pos if p['symbol'] == symbol)
+            en_vuelo = float(datos_pos['positionAmt']) != 0
 
             if not en_vuelo:
-                # SHORT: ADX fuerte, Lejos de EMA y MACD confirmando caída
+                # Entrada SHORT con filtro MACD
                 if adx_val > 26 and distancia < -9 and macd_l < macd_s:
                     balance = float(client.futures_account_balance()[1]['balance'])
                     qty = (balance * capital_percent * leverage) / precio
-                    
                     client.futures_create_order(symbol=symbol, side=SIDE_SELL, type=ORDER_TYPE_MARKET, quantity=round(qty, 3))
                     client.futures_create_order(symbol=symbol, side=SIDE_BUY, type='TRAILING_STOP_MARKET', quantity=round(qty, 3), callbackRate=0.5, workingType='MARK_PRICE')
-                    print(f"✅ SHORT DISPARADO EN {precio}")
+                    print(f"✅ NUEVO SHORT EN {precio}")
 
-                # LONG: ADX fuerte, Arriba de EMA y MACD confirmando subida
+                # Entrada LONG con filtro MACD
                 elif adx_val > 26 and distancia > 9 and macd_l > macd_s:
                     balance = float(client.futures_account_balance()[1]['balance'])
                     qty = (balance * capital_percent * leverage) / precio
-                    
                     client.futures_create_order(symbol=symbol, side=SIDE_BUY, type=ORDER_TYPE_MARKET, quantity=round(qty, 3))
                     client.futures_create_order(symbol=symbol, side=SIDE_SELL, type='TRAILING_STOP_MARKET', quantity=round(qty, 3), callbackRate=0.5, workingType='MARK_PRICE')
-                    print(f"✅ LONG DISPARADO EN {precio}")
+                    print(f"✅ NUEVO LONG EN {precio}")
 
                 else:
                     print(f"🔎 ETH: {precio} | ADX: {adx_val:.1f} | Dist: {distancia:.1f} | ESPERAR")
             else:
-                print(f"🛡️ POSICIÓN ACTIVA - PRECIO ACTUAL: {precio}")
+                print(f"🛡️ POSICIÓN ACTIVA - MONITOREANDO ETH EN {precio}")
 
             time.sleep(30)
 
         except Exception as e:
-            print(f"❌ ERROR: {e}")
-            time.sleep(10)
+            # Si el error es de llaves, te lo dirá aquí una sola vez
+            print(f"⚠️ Aviso: {e}")
+            time.sleep(20)
 
 if __name__ == "__main__":
     ejecutar_gladiador()
