@@ -10,8 +10,6 @@ def analizar_mercado(client, simbolo):
         df['low'] = pd.to_numeric(df['l'])
         p_act = df['close'].iloc[-1]
         ema_200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
-        
-        # ADX > 25 (Fuerza de tendencia)
         p_dm = (df['high'].diff()).clip(lower=0)
         m_dm = (-df['low'].diff()).clip(lower=0)
         tr = np.maximum(df['high'] - df['low'], np.maximum(abs(df['high'] - df['close'].shift(1)), abs(df['low'] - df['close'].shift(1))))
@@ -19,17 +17,13 @@ def analizar_mercado(client, simbolo):
         p_di = 100 * (p_dm.rolling(window=14).mean() / atr).iloc[-1]
         m_di = 100 * (m_dm.rolling(window=14).mean() / atr).iloc[-1]
         adx = (100 * abs(p_di - m_di) / (p_di + m_di)) if (p_di + m_di) != 0 else 0
-        
-        # Volumen (Confirmación)
         depth = client.futures_order_book(symbol=simbolo, limit=50)
         v_c = sum(float(b[1]) for b in depth['bids'])
         v_v = sum(float(a[1]) for a in depth['asks'])
-        
         res = "ESPERAR"
         if adx > 25:
             if p_act > ema_200 and p_di > m_di and v_c > v_v: res = "LONG"
             elif p_act < ema_200 and m_di > p_di and v_v > v_c: res = "SHORT"
-            
         return res, p_act, adx, (v_c - v_v)
     except:
         return "ERROR", 0, 0, 0
