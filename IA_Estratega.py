@@ -27,14 +27,12 @@ def analizar_mercado(client, simbolo):
         v_c = sum(float(b[1]) for b in depth['bids'])
         v_v = sum(float(a[1]) for a in depth['asks'])
 
-        # 🎯 3. Lógica de Decisión Ale (EMA + DMI + Volumen)
+        # 🎯 3. Lógica Ale: EMA + DMI (Filtro 12) + ADX (25) + Volumen
         if p_act > (ema_200 + 1) and p_di > (m_di + 12) and adx > 25 and v_c > v_v:
             return "LONG", p_act, v_c, v_v
         elif p_act < (ema_200 - 1) and m_di > (p_di + 12) and adx > 25 and v_v > v_c:
             return "SHORT", p_act, v_c, v_v
         
         return "ESPERAR", p_act, v_c, v_v
-        
     except Exception as e:
-        print(f"🧠 Error en Estratega: {e}")
         return "ERROR", 0, 0, 0
