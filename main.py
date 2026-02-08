@@ -1,19 +1,18 @@
 import time
 import sys
+import os
 import pandas as pd
 import numpy as np
 from binance.client import Client
 from threading import Thread
 
-# --- IMPORTACIÓN DE TUS LLAVES (Desde Ale2.py) ---
-try:
-    import Ale2
-    API_KEY = Ale2.API_KEY.strip()
-    SECRET_KEY = Ale2.SECRET_KEY.strip()
-    print("✅ Llaves cargadas correctamente desde Ale2")
-except Exception as e:
-    print(f"❌ Error al leer Ale2.py: {e}")
-    # Si falla la importación, el bot no arranca por seguridad
+# --- CONEXIÓN CON VARIABLES DE RAILWAY ---
+# El bot busca "API_KEY" y "API_SECRET" que configuraste en el panel
+API_KEY = os.getenv('API_KEY')
+SECRET_KEY = os.getenv('API_SECRET')
+
+if not API_KEY or not SECRET_KEY:
+    print("❌ ERROR: No se encontraron las variables en Railway.")
     sys.exit()
 
 # Intentamos importar Flask para el escudo anti-pausa
@@ -27,7 +26,7 @@ if Flask:
     app = Flask('')
     @app.route('/')
     def home():
-        return "Gatito Quantum v11: Sistema Chajá con Conexión Ale2"
+        return "Gatito Quantum v11: Patrullando con Variables de Entorno"
     def run_web():
         app.run(host='0.0.0.0', port=8080)
 
@@ -45,7 +44,6 @@ ADX_CAZADORA = 19.0
 client = Client(API_KEY, SECRET_KEY)
 
 def obtener_datos():
-    """Trae datos y el capital real para Interés Compuesto"""
     try:
         klines = client.futures_klines(symbol=SIMBOLO, interval='5m', limit=500)
         if not klines or len(klines) < 200:
@@ -84,7 +82,6 @@ def obtener_datos():
 
 def ejecutar_orden(tipo, precio, capital):
     try:
-        # Cálculo del 20% del capital real
         margen = capital * PORCENTAJE_OP
         monto_con_leverage = margen * LEVERAGE
         cantidad_eth = round(monto_con_leverage / precio, 3)
@@ -104,7 +101,7 @@ def ejecutar_orden(tipo, precio, capital):
         return False
 
 def main_loop():
-    print(f"🚀 {NOMBRE_BOT} - COTO DE CAZA CONECTADO A ALE2")
+    print(f"🚀 {NOMBRE_BOT} - COTO DE CAZA CONECTADO A RAILWAY VARS")
     sys.stdout.flush()
     while True:
         p, d, a, cap = obtener_datos()
@@ -118,7 +115,7 @@ def main_loop():
                 tipo_msg = "🔱 HACHAZO" if a >= ADX_HACHAZO else "🎯 CAZADORA"
                 exito = ejecutar_orden(tipo_msg, p, cap)
                 if exito:
-                    print("💤 Operación abierta. Pausa de 30 min para proteger capital.")
+                    print("💤 Operación abierta. Pausa de 30 min.")
                     time.sleep(1800)
             
         time.sleep(35)
