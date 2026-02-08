@@ -10,7 +10,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "🛡️ Gladiador v12.17.0: Ale2 + IA_Estratega Online", 200
+    return "🛡️ Gladiador v12.17.0 Online", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -21,8 +21,6 @@ Thread(target=run_flask, daemon=True).start()
 def ejecutar_sistema():
     SIMBOLO = 'ETHUSDT'
     client = Client(os.getenv('API_KEY'), os.getenv('API_SECRET'))
-    print("⚔️ Ale2: Motor encendido...")
-
     while True:
         try:
             dec, p, vc, vv = IA_Estratega.analizar_mercado(client, SIMBOLO)
@@ -34,20 +32,14 @@ def ejecutar_sistema():
             if amt == 0 and dec in ["LONG", "SHORT"]:
                 balance = client.futures_account_balance()
                 cap = next(float(b['balance']) for b in balance if b['asset'] == 'USDT')
-                # Interés compuesto 20% x10 leverage
-                qty = round(((cap * 0.20) * 10) / p, 3)
-                
-                side = 'BUY' if dec == "LONG" else 'SELL'
-                client.futures_create_order(symbol=SIMBOLO, side=side, type='MARKET', quantity=qty)
-                print(f"🔥 ¡ATAQUE {side}! Qty: {qty}")
-
-            elif amt != 0:
-                if (amt > 0 and dec == "SHORT") or (amt < 0 and dec == "LONG"):
-                    client.futures_create_order(symbol=SIMBOLO, side='SELL' if amt > 0 else 'BUY', type='MARKET', quantity=abs(amt))
-                    print("🛑 CIERRE POR CAMBIO SEÑAL.")
-
+                qty = round(((cap * 0.20) * 10) / p, 3) # Interés 20%
+                client.futures_create_order(symbol=SIMBOLO, side='BUY' if dec == "LONG" else 'SELL', type='MARKET', quantity=qty)
+            elif amt != 0 and ((amt > 0 and dec == "SHORT") or (amt < 0 and dec == "LONG")):
+                client.futures_create_order(symbol=SIMBOLO, side='SELL' if amt > 0 else 'BUY', type='MARKET', quantity=abs(amt))
         except Exception as e:
-            print(f"⚠️ Error Ale2: {e}")
-        
+            print(f"⚠️ Error: {e}")
         sys.stdout.flush()
         time.sleep(20)
+
+if __name__ == "__main__":
+    ejecutar_sistema()
