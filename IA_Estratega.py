@@ -3,7 +3,7 @@ import numpy as np
 
 def analizar_mercado(client, simbolo):
     try:
-        # 1. Obtención de 300 velas para EMA 200
+        # 1. Obtención de datos
         k = client.futures_klines(symbol=simbolo, interval='5m', limit=300)
         df = pd.DataFrame(k, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
         df['close'] = pd.to_numeric(df['c'])
@@ -13,7 +13,7 @@ def analizar_mercado(client, simbolo):
         p_act = df['close'].iloc[-1]
         ema_200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
         
-        # 2. DMI y ADX (Filtro de tendencia)
+        # 2. DMI / ADX
         p_dm = df['high'].diff().clip(lower=0)
         m_dm = (-df['low'].diff()).clip(lower=0)
         tr = np.maximum(df['high'] - df['low'], np.maximum(abs(df['high'] - df['close'].shift(1)), abs(df['low'] - df['close'].shift(1))))
@@ -22,12 +22,11 @@ def analizar_mercado(client, simbolo):
         m_di = 100 * (m_dm.rolling(window=14).mean() / atr).iloc[-1]
         adx = (100 * abs(p_di - m_di) / (p_di + m_di)) if (p_di + m_di) != 0 else 0
 
-        # 3. Libro de 500 Puntas (Volumen Real)
+        # 3. Libro de 500 Puntas
         depth = client.futures_order_book(symbol=simbolo, limit=500)
         v_c = sum(float(b[1]) for b in depth['bids'])
         v_v = sum(float(a[1]) for a in depth['asks'])
 
-        # 4. Lógica de Disparo
         res = "ESPERAR"
         if p_act > (ema_200 + 0.5) and p_di > (m_di + 12) and adx > 25 and v_c > v_v:
             res = "LONG"
@@ -35,6 +34,5 @@ def analizar_mercado(client, simbolo):
             res = "SHORT"
             
         return res, p_act, v_c, v_v
-    except Exception as e:
-        print(f"Error en IA: {e}")
+    except Exception:
         return "ERROR", 0, 0, 0
