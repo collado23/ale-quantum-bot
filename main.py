@@ -7,39 +7,32 @@ from binance.client import Client
 from threading import Thread
 
 # --- CONEXIÓN CON VARIABLES DE RAILWAY ---
-# El bot busca "API_KEY" y "API_SECRET" que configuraste en el panel
 API_KEY = os.getenv('API_KEY')
 SECRET_KEY = os.getenv('API_SECRET')
-
-if not API_KEY or not SECRET_KEY:
-    print("❌ ERROR: No se encontraron las variables en Railway.")
-    sys.exit()
 
 # Intentamos importar Flask para el escudo anti-pausa
 try:
     from flask import Flask
-except ImportError:
-    Flask = None
-
-# --- ESCUDO ANTI-PAUSA ---
-if Flask:
     app = Flask('')
     @app.route('/')
     def home():
-        return "Gatito Quantum v11: Patrullando con Variables de Entorno"
+        return "Gatito Quantum v12: Gladiador Activo"
     def run_web():
         app.run(host='0.0.0.0', port=8080)
+except ImportError:
+    app = None
 
 # ==========================================
 # 🔱 PARÁMETROS ESTRATÉGICOS
 # ==========================================
-NOMBRE_BOT = "GATITO QUANTUM v11 - REAL"
+NOMBRE_BOT = "GATITO QUANTUM v12 - GLADIADOR"
 SIMBOLO = 'ETHUSDT'
 PORCENTAJE_OP = 0.20  # Interés Compuesto
 LEVERAGE = 10
 DISTANCIA_MIN = 5.0
-ADX_HACHAZO = 24.0
 ADX_CAZADORA = 19.0
+ADX_AGOTAMIENTO = 17.5  # Nivel donde la fuerza se apaga
+en_posicion = False      # Estado inicial del bot
 
 client = Client(API_KEY, SECRET_KEY)
 
@@ -47,7 +40,7 @@ def obtener_datos():
     try:
         klines = client.futures_klines(symbol=SIMBOLO, interval='5m', limit=500)
         if not klines or len(klines) < 200:
-            return None, None, None, None
+            return None, None, None, None, None
 
         df = pd.DataFrame(klines, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
         df['close'] = pd.to_numeric(df['c'])
@@ -58,7 +51,7 @@ def obtener_datos():
         p = df['close'].iloc[-1]
         d = abs(p - ema200)
         
-        # ADX Real
+        # ADX Real Ale
         plus_dm = df['high'].diff().clip(lower=0)
         minus_dm = (-df['low'].diff()).clip(lower=0)
         tr = np.maximum(df['high'] - df['low'], 
@@ -70,58 +63,86 @@ def obtener_datos():
         dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
         a = dx.rolling(window=14).mean().iloc[-1]
 
-        # Interés Compuesto: Leer balance real de Binance
+        # Balance para Interés Compuesto
         balance = client.futures_account_balance()
         cap = next(float(b['balance']) for b in balance if b['asset'] == 'USDT')
 
-        return p, d, a, cap
+        return p, d, a, cap, ema200
     except Exception as e:
-        print(f"📡 Sincronizando con Binance... ({e})")
+        print(f"📡 Error sincronizando datos: {e}")
         sys.stdout.flush()
-        return None, None, None, None
+        return None, None, None, None, None
 
-def ejecutar_orden(tipo, precio, capital):
+def cerrar_posicion():
+    global en_posicion
     try:
-        margen = capital * PORCENTAJE_OP
-        monto_con_leverage = margen * LEVERAGE
-        cantidad_eth = round(monto_con_leverage / precio, 3)
+        # Consultar posición real en Binance
+        info = client.futures_position_information(symbol=SIMBOLO)
+        cantidad_actual = abs(float(next(p['positionAmt'] for p in info if p['symbol'] == SIMBOLO)))
         
-        print(f"🔥 {tipo} DETECTADO. Margen: ${margen:.2f} | Comprando: {cantidad_eth} ETH")
-        
-        # --- ORDEN REAL ACTIVA ---
-        orden = client.futures_create_order(
-            symbol=SIMBOLO, side='BUY', type='MARKET', quantity=cantidad_eth
-        )
-        print(f"✅ ORDEN EXITOSA ID: {orden['orderId']}")
-        sys.stdout.flush()
-        return True
+        if cantidad_actual > 0:
+            # Orden de venta para cerrar el Long
+            client.futures_create_order(
+                symbol=SIMBOLO,
+                side='SELL',
+                type='MARKET',
+                quantity=cantidad_actual
+            )
+            print(f"💰 CIERRE DE POSICIÓN: {cantidad_actual} ETH vendidos por agotamiento.")
+            en_posicion = False
+            return True
     except Exception as e:
-        print(f"❌ Error en Binance: {e}")
-        sys.stdout.flush()
-        return False
+        print(f"❌ Error al intentar cerrar: {e}")
+    return False
 
 def main_loop():
-    print(f"🚀 {NOMBRE_BOT} - COTO DE CAZA CONECTADO A RAILWAY VARS")
+    global en_posicion
+    print(f"🚀 {NOMBRE_BOT} - INICIADO")
     sys.stdout.flush()
+    
     while True:
-        p, d, a, cap = obtener_datos()
+        p, d, a, cap, ema = obtener_datos()
         
         if p is not None:
             hora = time.strftime('%H:%M:%S')
-            print(f"💓 [{hora}] P: {p:.2f} | DIST: {d:.2f} | ADX: {a:.2f} | CAP: ${cap:.2f}")
-            sys.stdout.flush()
-
-            if d >= DISTANCIA_MIN and a >= ADX_CAZADORA:
-                tipo_msg = "🔱 HACHAZO" if a >= ADX_HACHAZO else "🎯 CAZADORA"
-                exito = ejecutar_orden(tipo_msg, p, cap)
-                if exito:
-                    print("💤 Operación abierta. Pausa de 30 min.")
-                    time.sleep(1800)
             
-        time.sleep(35)
+            if not en_posicion:
+                # MODO BÚSQUEDA
+                print(f"🔎 [{hora}] BUSCANDO | P: {p:.2f} | ADX: {a:.2f} | CAP: ${cap:.2f}")
+                sys.stdout.flush()
+                
+                if d >= DISTANCIA_MIN and a >= ADX_CAZADORA:
+                    margen = cap * PORCENTAJE_OP
+                    cantidad = round((margen * LEVERAGE) / p, 3)
+                    
+                    try:
+                        client.futures_create_order(symbol=SIMBOLO, side='BUY', type='MARKET', quantity=cantidad)
+                        print(f"🔥 ENTRADA REALIZADA: {cantidad} ETH")
+                        en_posicion = True
+                    except Exception as e:
+                        print(f"❌ Error al comprar: {e}")
+            
+            else:
+                # MODO VIGILANCIA (Adentro de la operación)
+                print(f"👀 [{hora}] VIGILANDO | P: {p:.2f} | ADX: {a:.2f} | EMA: {ema:.2f}")
+                sys.stdout.flush()
+                
+                # CIERRE POR AGOTAMIENTO O RUPTURA DE TENDENCIA
+                # 
+                if a < ADX_AGOTAMIENTO:
+                    print("⚠️ Agotamiento de fuerza (ADX bajo 17.5).")
+                    cerrar_posicion()
+                    time.sleep(600) # Descanso de 10 min tras cerrar
+                
+                elif p < ema:
+                    print("⚠️ Ruptura de tendencia (Precio bajo EMA 200).")
+                    cerrar_posicion()
+                    time.sleep(600)
+
+        time.sleep(30)
 
 if __name__ == "__main__":
-    if Flask:
+    if app:
         t = Thread(target=run_web)
         t.daemon = True
         t.start()
