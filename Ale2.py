@@ -4,11 +4,11 @@ import numpy as np
 from binance.client import Client
 
 # ==========================================
-# CEREBRO: ADX 25 + VOLUMEN + EMA 200
+# CEREBRO: ADX 25 + EMA 200
 # ==========================================
-def analizar_mercado(client, simbolo):
+def analizar(client, sym):
     try:
-        k = client.futures_klines(symbol=simbolo, interval='5m', limit=100)
+        k = client.futures_klines(symbol=sym, interval='5m', limit=100)
         df = pd.DataFrame(k, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
         df['close'] = pd.to_numeric(df['c'])
         df['high'] = pd.to_numeric(df['h'])
@@ -17,7 +17,7 @@ def analizar_mercado(client, simbolo):
         p_act = df['close'].iloc[-1]
         ema = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
         
-        # ADX Manual (Filtro > 25 para evitar zigzag)
+        # ADX Manual para evitar errores de librerías
         p_dm = (df['high'].diff()).clip(lower=0)
         m_dm = (-df['low'].diff()).clip(lower=0)
         tr = np.maximum(df['high']-df['low'], np.maximum(abs(df['high']-df['close'].shift(1)), abs(df['low']-df['close'].shift(1))))
@@ -26,36 +26,30 @@ def analizar_mercado(client, simbolo):
         m_di = 100 * (m_dm.rolling(14).mean() / atr).iloc[-1]
         adx = (100 * abs(p_di - m_di) / (p_di + m_di)) if (p_di + m_di) != 0 else 0
         
-        # Volumen
-        depth = client.futures_order_book(symbol=simbolo, limit=50)
-        v_c = sum(float(b[1]) for b in depth['bids'])
-        v_v = sum(float(a[1]) for a in depth['asks'])
-        
         res = "ESPERAR"
-        if adx > 25:
-            if p_act > ema and p_di > m_di and v_c > v_v: res = "LONG"
-            elif p_act < ema and m_di > p_di and v_v > v_c: res = "SHORT"
-            
+        if adx > 25: # Solo entra si hay tendencia
+            if p_act > ema and p_di > m_di: res = "LONG"
+            elif p_act < ema and m_di > p_di: res = "SHORT"
         return res, p_act, adx
-    except:
-        return "ERROR", 0, 0
+    except: return "ERROR", 0, 0
 
 # ==========================================
-# MOTOR: INTERÉS 20% + DISTANCIA 9 (0.9%)
+# MOTOR: 20% COMPUESTO + DISTANCIA 9
 # ==========================================
-def ejecutar_sistema():
+def ejecutar():
     sym = 'ETHUSDT'
     try:
         client = Client(os.getenv('API_KEY'), os.getenv('API_SECRET'))
-        print("⚔️ Gladiador ETH: Conexión Exitosa (CÓDIGO ÚNICO)")
+        print("⚔️ Gladiador ETH: Conexión Exitosa (Todo en Uno)")
     except: return
 
     while True:
         try:
-            dec, p, adx = analizar_mercado(client, sym)
+            dec, p, adx = analizar(client, sym)
             pos = client.futures_position_information(symbol=sym)
             amt = next(float(i['positionAmt']) for i in pos if i['symbol'] == sym)
             
+            # Esto es lo que verás en la consola de Railway
             print(f"🔎 ETH:{p} | ADX:{round(adx,1)} | Señal:{dec} | Pos:{amt}")
 
             if amt == 0 and dec in ["LONG", "SHORT"]:
@@ -67,11 +61,11 @@ def ejecutar_sistema():
                 side = 'BUY' if dec == "LONG" else 'SELL'
                 client.futures_create_order(symbol=sym, side=side, type='MARKET', quantity=qty)
                 
-                # ESCUDO DISTANCIA 9
+                # ESCUDO DISTANCIA 9 (0.9%)
                 inv = 'SELL' if side == 'BUY' else 'BUY'
                 client.futures_create_order(symbol=sym, side=inv, type='TRAILING_STOP_MARKET', callbackRate=0.9, quantity=qty, reduceOnly=True)
-                print(f"🚀 Entrada {dec} con Escudo 0.9% (Distancia 9)")
-
+                print(f"🚀 {dec} Activado - Escudo 0.9%")
+                
         except Exception as e:
             print(f"⚠️ Reintentando... {e}")
         
@@ -79,4 +73,4 @@ def ejecutar_sistema():
         time.sleep(30)
 
 if __name__ == "__main__":
-    ejecutar_sistema()
+    ejecutar()
