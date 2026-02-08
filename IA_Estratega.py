@@ -3,7 +3,7 @@ import numpy as np
 
 def analizar_mercado(client, simbolo):
     try:
-        # 📊 1. Datos para EMA 200 y DMI
+        # 📊 1. Datos para EMA 200 y DMI (300 velas)
         klines = client.futures_klines(symbol=simbolo, interval='5m', limit=300)
         df = pd.DataFrame(klines, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
         df['close'] = pd.to_numeric(df['c'])
@@ -34,5 +34,5 @@ def analizar_mercado(client, simbolo):
             return "SHORT", p_act, v_c, v_v
         
         return "ESPERAR", p_act, v_c, v_v
-    except Exception as e:
+    except Exception:
         return "ERROR", 0, 0, 0
