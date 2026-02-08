@@ -21,10 +21,7 @@ def analizar_mercado(client, simbolo):
         v_c = sum(float(b[1]) for b in depth['bids'])
         v_v = sum(float(a[1]) for a in depth['asks'])
         res = "ESPERAR"
-        if p_act > (ema_200 + 0.5) and p_di > (m_di + 12) and adx > 25 and v_c > v_v:
-            res = "LONG"
-        elif p_act < (ema_200 - 0.5) and m_di > (p_di + 12) and adx > 25 and v_v > v_c:
-            res = "SHORT"
+        if p_act > (ema_200 + 0.5) and p_di > (m_di + 12) and adx > 25 and v_c > v_v: res = "LONG"
+        elif p_act < (ema_200 - 0.5) and m_di > (p_di + 12) and adx > 25 and v_v > v_c: res = "SHORT"
         return res, p_act, v_c, v_v
-    except:
-        return "ERROR", 0, 0, 0
+    except: return "ERROR", 0, 0, 0
