@@ -1,7 +1,15 @@
 import os
 import time
+
+# --- TRUCO DE INSTALACIÓN AUTOMÁTICA ---
+try:
+    import pandas_ta as ta
+except ImportError:
+    print("📦 Instalando herramientas de análisis (pandas-ta)...")
+    os.system('pip install pandas-ta')
+    import pandas_ta as ta
+
 import pandas as pd
-import pandas_ta as ta
 from binance.client import Client
 from binance.enums import *
 
@@ -15,7 +23,7 @@ leverage = 10
 capital_percent = 0.20  # Usamos el 20% de tu capital (aprox 6.9 USDT)
 
 def obtener_datos():
-    # Velas de 5 minutos para captar tendencias rápidas
+    # Velas de 5 minutos
     klines = client.futures_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_5MINUTE, limit=300)
     df = pd.DataFrame(klines, columns=['time', 'open', 'high', 'low', 'close', 'vol', 'close_time', 'qav', 'num_trades', 'taker_base', 'taker_quote', 'ignore'])
     df['close'] = df['close'].astype(float)
@@ -27,7 +35,10 @@ def ejecutar_gladiador():
     print(f"🔱 ALE2.py ACTUALIZADO - FILTRO MACD + TRAILING 0.5% - {symbol}")
     
     # Aseguramos el apalancamiento x10
-    client.futures_change_leverage(symbol=symbol, leverage=leverage)
+    try:
+        client.futures_change_leverage(symbol=symbol, leverage=leverage)
+    except Exception as e:
+        print(f"⚠️ Nota sobre apalancamiento: {e}")
 
     while True:
         try:
@@ -42,7 +53,7 @@ def ejecutar_gladiador():
             adx_df = ta.adx(df['high'], df['low'], df['close'], length=14)
             adx_val = adx_df['ADX_14'].iloc[-1]
             
-            # 3. MACD (Dirección - El nuevo escudo)
+            # 3. MACD (El escudo contra picos)
             macd_df = ta.macd(df['close'], fast=12, slow=26, signal=9)
             macd_line = macd_df['MACD_12_26_9'].iloc[-1]
             macd_signal = macd_df['MACDs_12_26_9'].iloc[-1]
@@ -57,17 +68,16 @@ def ejecutar_gladiador():
 
             if not en_posicion:
                 # ESTRATEGIA PARA SHORT (Venta)
-                # Filtros: ADX alto, Lejos de EMA y MACD cruzado hacia abajo
+                # Ahora requiere MACD Bajista (Línea < Señal)
                 if adx_val > 26 and distancia < -9 and macd_line < macd_signal:
-                    print(f"🔥 DISPARO SHORT: ADX {adx_val:.2f} | MACD Confirmado | Dist {distancia:.2f}")
+                    print(f"🔥 DISPARO SHORT: ADX {adx_val:.2f} | MACD OK | Dist {distancia:.2f}")
                     
                     balance = float(client.futures_account_balance()[1]['balance'])
                     cantidad = (balance * capital_percent * leverage) / precio
                     
-                    # Orden de Mercado
                     client.futures_create_order(symbol=symbol, side=SIDE_SELL, type=ORDER_TYPE_MARKET, quantity=round(cantidad, 3))
                     
-                    # Trailing Stop ajustado al 0.5% para evitar picos
+                    # Trailing Stop ajustado al 0.5%
                     client.futures_create_order(
                         symbol=symbol,
                         side=SIDE_BUY,
@@ -76,11 +86,12 @@ def ejecutar_gladiador():
                         callbackRate=0.5,
                         workingType='MARK_PRICE'
                     )
-                    print("✅ SHORT ABIERTO - TRAILING 0.5% ACTIVADO")
+                    print("✅ SHORT ABIERTO - TRAILING 0.5%")
 
                 # ESTRATEGIA PARA LONG (Compra)
+                # Ahora requiere MACD Alcista (Línea > Señal)
                 elif adx_val > 26 and distancia > 9 and macd_line > macd_signal:
-                    print(f"🚀 DISPARO LONG: ADX {adx_val:.2f} | MACD Confirmado | Dist {distancia:.2f}")
+                    print(f"🚀 DISPARO LONG: ADX {adx_val:.2f} | MACD OK | Dist {distancia:.2f}")
                     
                     balance = float(client.futures_account_balance()[1]['balance'])
                     cantidad = (balance * capital_percent * leverage) / precio
@@ -95,20 +106,18 @@ def ejecutar_gladiador():
                         callbackRate=0.5,
                         workingType='MARK_PRICE'
                     )
-                    print("✅ LONG ABIERTO - TRAILING 0.5% ACTIVADO")
+                    print("✅ LONG ABIERTO - TRAILING 0.5%")
 
                 else:
-                    # Log para saber qué falta para entrar
-                    estado_macd = "OK" if (macd_line < macd_signal and distancia < 0) or (macd_line > macd_signal and distancia > 0) else "ESPERAR"
-                    print(f"🔎 ETH: {precio} | ADX: {adx_val:.2f} | MACD: {estado_macd} | ESPERAR")
+                    print(f"🔎 ETH: {precio} | ADX: {adx_val:.2f} | Dist: {distancia:.2f} | ESPERAR")
             
             else:
-                print(f"🛡️ ALE2: POSICIÓN ACTIVA - PRECIO: {precio} - MONITOREANDO...")
+                print(f"🛡️ ALE2: POSICIÓN ACTIVA EN {precio} - MONITOREANDO")
 
-            time.sleep(30) # Revisa cada 30 segundos
+            time.sleep(30) 
 
         except Exception as e:
-            print(f"❌ ERROR EN ALE2: {e}")
+            print(f"❌ ERROR: {e}")
             time.sleep(10)
 
 if __name__ == "__main__":
