@@ -4,55 +4,83 @@ import pandas as pd
 import numpy as np
 from binance.client import Client
 
-# --- CONFIGURACIÓN (Poné tus llaves) ---
-NOMBRE_BOT = "TEST - GATITO QUANTUM"
-API_KEY = 'TU_API_KEY_AQUI'
-SECRET_KEY = 'TU_SECRET_KEY_AQUI'
+# --- IDENTIDAD DEL CAZADOR ---
+NOMBRE_BOT = "GATITO QUANTUM v7 GOLD"
+API_KEY = 'TU_API_KEY_REAL'
+SECRET_KEY = 'TU_SECRET_KEY_REAL'
 
-# --- PARÁMETROS DE LA PRUEBA ---
+# --- REGLAS DE ORO ALE ---
+SIMBOLO = 'ETHUSDT'
 CAPITAL_TOTAL = 36.02
-PORCENTAJE_OP = 0.20
+PORCENTAJE_OP = 0.20 # 20% Interés Compuesto
 LEVERAGE = 10
+DISTANCIA_MIN = 5.0
+ADX_HACHAZO = 24.0
+ADX_CAZADORA = 19.0
 
-# Conexión
 client = Client(API_KEY, SECRET_KEY)
 
-def latido_test(mensaje):
-    print(f"💓 [TEST] {time.strftime('%H:%M:%S')} - {mensaje}")
+def obtener_indicadores():
+    try:
+        # Pausa de seguridad para evitar baneo de IP
+        time.sleep(1)
+        klines = client.futures_klines(symbol=SIMBOLO, interval='5m', limit=100)
+        df = pd.DataFrame(klines, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
+        df['close'] = df['close'].astype(float)
+        df['high'] = df['high'].astype(float)
+        df['low'] = df['low'].astype(float)
+
+        # 1. EMA 200
+        ema200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
+        precio = df['close'].iloc[-1]
+        distancia = abs(precio - ema200)
+
+        # 2. ADX Matemático Real
+        plus_dm = df['high'].diff().clip(lower=0)
+        minus_dm = (-df['low'].diff()).clip(lower=0)
+        tr = np.maximum(df['high'] - df['low'], 
+                        np.maximum(abs(df['high'] - df['close'].shift(1)), 
+                                   abs(df['low'] - df['close'].shift(1))))
+        atr = tr.rolling(window=14).mean()
+        plus_di = 100 * (plus_dm.rolling(window=14).mean() / atr)
+        minus_di = 100 * (minus_dm.rolling(window=14).mean() / atr)
+        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+        adx_actual = dx.rolling(window=14).mean().iloc[-1]
+
+        return precio, distancia, adx_actual
+    except Exception as e:
+        print(f"⚠️ Esperando conexión... {e}")
+        return None, None, None
+
+def abrir_hachazo(tipo):
+    margen = CAPITAL_TOTAL * PORCENTAJE_OP
+    print(f"🔥 {tipo} DETECTADO. Enviando orden de ${margen:.2f} a Binance...")
+    try:
+        # QUITAR EL '#' DE ABAJO PARA OPERAR REAL
+        # client.futures_create_order(symbol=SIMBOLO, side='BUY', type='MARKET', quantity=0.03)
+        print(f"💎 ORDEN CONFIRMADA. ¡A cobrar!")
+    except Exception as e:
+        print(f"❌ Falló Binance: {e}")
     sys.stdout.flush()
 
 def main():
-    print(f"🚀 INICIANDO PRUEBA DE FUEGO")
-    latido_test("Verificando conexión con Binance...")
-    
-    try:
-        # 1. Forzamos las variables para que den POSITIVO
-        adx_test = 25.0
-        dist_test = 6.0
-        
-        latido_test(f"Simulando condiciones: ADX {adx_test} | DIST {dist_test}")
-        
-        # 2. Intentamos ejecutar la lógica de Ale
-        if dist_test >= 5.0 and adx_test >= 19.0:
-            margen = CAPITAL_TOTAL * PORCENTAJE_OP
-            print(f"🔥 SEÑAL DE PRUEBA DETECTADA")
-            print(f"✅ EJECUTANDO ORDEN DE ${margen:.2f} x10...")
-            
-            # --- INTENTO REAL DE ORDEN (Aquí probamos si Railway se apaga) ---
-            try:
-                # Quitá el '#' de la línea de abajo para que mande la orden real
-                # client.futures_create_order(symbol='ETHUSDT', side='BUY', type='MARKET', quantity=0.01)
-                print("💎 ¡ÉXITO! La orden llegó a Binance sin que Railway se apague.")
-            except Exception as e:
-                print(f"❌ Error en la orden: {e}")
-            
+    print(f"🚀 {NOMBRE_BOT} EN CAZA REAL")
+    while True:
+        p, d, a = obtener_indicadores()
+        if p:
+            print(f"💗 [LATIDO] P: {p} | DIST: {d:.2f} | ADX: {a:.2f}")
             sys.stdout.flush()
-            
-    except Exception as e:
-        print(f"❌ Error crítico en el test: {e}")
 
-    print("🏁 Fin de la prueba. Si leíste esto, el bot NO se puso en pausa.")
-    sys.stdout.flush()
+            # Lógica de entrada Ale
+            if d >= DISTANCIA_MIN:
+                if a >= ADX_HACHAZO:
+                    abrir_hachazo("🔱 HACHAZO SEGURO")
+                    time.sleep(3600) # Pausa tras éxito
+                elif a >= ADX_CAZADORA:
+                    abrir_hachazo("🎯 SEÑAL CAZADORA")
+                    time.sleep(3600)
+        
+        time.sleep(45) # Ritmo perfecto para Railway y Binance
 
 if __name__ == "__main__":
     main()
