@@ -1,1 +1,1 @@
-worker: python main.py
+worker: python Ale2.py
