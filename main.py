@@ -1,62 +1,40 @@
-import time
-import os
-import sys
-from binance.client import Client
-from flask import Flask
-from threading import Thread
-import IA_Estratega  # Aquí importamos tu otro archivo
+import pandas as pd
+import numpy as np
 
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "🛡️ Gladiador Dual Activo (Ale2 + Estratega)", 200
-
-def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
-
-# Lanzar servidor de vida
-Thread(target=run_flask, daemon=True).start()
-
-# CONFIGURACIÓN
-SIMBOLO = 'ETHUSDT'
-client = Client(os.getenv('API_KEY'), os.getenv('API_SECRET'))
-
-def iniciar_bot():
-    print("⚔️ Ale2: Motor de ejecución iniciado...")
-    while True:
-        try:
-            # Llamamos al Cerebro para que analice
-            decision, precio, vol_c, vol_v = IA_Estratega.analizar_mercado(client, SIMBOLO)
-            
-            # Revisar posición
-            pos = client.futures_position_information(symbol=SIMBOLO)
-            amt = next(float(i['positionAmt']) for i in pos if i['symbol'] == SIMBOLO)
-            
-            print(f"🔎 P:{precio:.1f} | L-C:{vol_c:.0f} | L-V:{vol_v:.0f} | Decisión: {decision}")
-
-            if amt == 0 and decision in ["LONG", "SHORT"]:
-                # Interés compuesto al 20%
-                balance = client.futures_account_balance()
-                cap = next(float(b['balance']) for b in balance if b['asset'] == 'USDT')
-                qty = round(((cap * 0.20) * 10) / precio, 3)
-                
-                side = 'BUY' if decision == "LONG" else 'SELL'
-                client.futures_create_order(symbol=SIMBOLO, side=side, type='MARKET', quantity=qty)
-                print(f"🔥 ¡ORDEN {side} ENVIADA!")
-
-            elif amt != 0:
-                # Cierre por señal contraria
-                if (amt > 0 and decision == "SHORT") or (amt < 0 and decision == "LONG"):
-                    client.futures_create_order(symbol=SIMBOLO, side='SELL' if amt > 0 else 'BUY', type='MARKET', quantity=abs(amt))
-                    print("🛑 Cerrando posición.")
-
-        except Exception as e:
-            print(f"⚠️ Error en Ale2: {e}")
+def analizar_mercado(client, simbolo):
+    try:
+        # 📊 1. Datos para EMA 200 y DMI
+        klines = client.futures_klines(symbol=simbolo, interval='5m', limit=300)
+        df = pd.DataFrame(klines, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
+        df['close'] = pd.to_numeric(df['c'])
+        df['high'] = pd.to_numeric(df['h'])
+        df['low'] = pd.to_numeric(df['l'])
         
-        sys.stdout.flush()
-        time.sleep(20)
+        p_act = df['close'].iloc[-1]
+        ema_200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
+        
+        # Cálculo DMI / ADX
+        plus_dm = df['high'].diff().clip(lower=0)
+        minus_dm = (-df['low'].diff()).clip(lower=0)
+        tr = np.maximum(df['high'] - df['low'], np.maximum(abs(df['high'] - df['close'].shift(1)), abs(df['low'] - df['close'].shift(1))))
+        atr = tr.rolling(window=14).mean()
+        p_di = 100 * (plus_dm.rolling(window=14).mean() / atr).iloc[-1]
+        m_di = 100 * (minus_dm.rolling(window=14).mean() / atr).iloc[-1]
+        adx = (100 * abs(p_di - m_di) / (p_di + m_di)) if (p_di + m_di) != 0 else 0
 
-if __name__ == "__main__":
-    iniciar_bot()
+        # 📚 2. Barrido de 500 puntas del Libro
+        depth = client.futures_order_book(symbol=simbolo, limit=500)
+        v_c = sum(float(b[1]) for b in depth['bids'])
+        v_v = sum(float(a[1]) for a in depth['asks'])
+
+        # 🎯 3. Lógica de Decisión Ale (EMA + DMI + Volumen)
+        if p_act > (ema_200 + 1) and p_di > (m_di + 12) and adx > 25 and v_c > v_v:
+            return "LONG", p_act, v_c, v_v
+        elif p_act < (ema_200 - 1) and m_di > (p_di + 12) and adx > 25 and v_v > v_c:
+            return "SHORT", p_act, v_c, v_v
+        
+        return "ESPERAR", p_act, v_c, v_v
+        
+    except Exception as e:
+        print(f"🧠 Error en Estratega: {e}")
+        return "ERROR", 0, 0, 0
