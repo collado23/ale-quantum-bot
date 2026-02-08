@@ -4,38 +4,43 @@ import pandas as pd
 import numpy as np
 from binance.client import Client
 
-# --- IDENTIDAD DEL CAZADOR ---
+# --- CONFIGURACIÓN ---
 NOMBRE_BOT = "GATITO QUANTUM v7 GOLD"
-API_KEY = 'TU_API_KEY_REAL'
-SECRET_KEY = 'TU_SECRET_KEY_REAL'
-
-# --- REGLAS DE ORO ALE ---
+API_KEY = 'TU_API_KEY_AQUI'
+SECRET_KEY = 'TU_SECRET_KEY_AQUI'
 SIMBOLO = 'ETHUSDT'
 CAPITAL_TOTAL = 36.02
-PORCENTAJE_OP = 0.20 # 20% Interés Compuesto
+PORCENTAJE_OP = 0.20
 LEVERAGE = 10
-DISTANCIA_MIN = 5.0
-ADX_HACHAZO = 24.0
-ADX_CAZADORA = 19.0
 
 client = Client(API_KEY, SECRET_KEY)
 
-def obtener_indicadores():
+def obtener_datos_mercado():
+    """Trae datos y valida que no estén vacíos para evitar el error 'close'"""
     try:
-        # Pausa de seguridad para evitar baneo de IP
-        time.sleep(1)
-        klines = client.futures_klines(symbol=SIMBOLO, interval='5m', limit=100)
+        # Pedimos suficientes velas para la EMA 200
+        klines = client.futures_klines(symbol=SIMBOLO, interval='5m', limit=300)
+        
+        if not klines or len(klines) < 200:
+            print("⏳ Esperando que Binance cargue el historial de velas...")
+            return None, None, None
+
         df = pd.DataFrame(klines, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
+        
+        # Validación de columnas antes de convertir
+        if 'c' not in df.columns:
+            return None, None, None
+
         df['close'] = df['close'].astype(float)
         df['high'] = df['high'].astype(float)
         df['low'] = df['low'].astype(float)
 
-        # 1. EMA 200
+        # EMA 200
         ema200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
         precio = df['close'].iloc[-1]
         distancia = abs(precio - ema200)
 
-        # 2. ADX Matemático Real
+        # ADX Real
         plus_dm = df['high'].diff().clip(lower=0)
         minus_dm = (-df['low'].diff()).clip(lower=0)
         tr = np.maximum(df['high'] - df['low'], 
@@ -45,42 +50,35 @@ def obtener_indicadores():
         plus_di = 100 * (plus_dm.rolling(window=14).mean() / atr)
         minus_di = 100 * (minus_dm.rolling(window=14).mean() / atr)
         dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
-        adx_actual = dx.rolling(window=14).mean().iloc[-1]
+        adx = dx.rolling(window=14).mean().iloc[-1]
 
-        return precio, distancia, adx_actual
+        return precio, distancia, adx
     except Exception as e:
-        print(f"⚠️ Esperando conexión... {e}")
+        # Este es el print que viste en tu última captura
+        print(f"⚠️ Reintentando conexión... ({e})")
         return None, None, None
 
-def abrir_hachazo(tipo):
-    margen = CAPITAL_TOTAL * PORCENTAJE_OP
-    print(f"🔥 {tipo} DETECTADO. Enviando orden de ${margen:.2f} a Binance...")
-    try:
-        # QUITAR EL '#' DE ABAJO PARA OPERAR REAL
-        # client.futures_create_order(symbol=SIMBOLO, side='BUY', type='MARKET', quantity=0.03)
-        print(f"💎 ORDEN CONFIRMADA. ¡A cobrar!")
-    except Exception as e:
-        print(f"❌ Falló Binance: {e}")
-    sys.stdout.flush()
-
 def main():
-    print(f"🚀 {NOMBRE_BOT} EN CAZA REAL")
+    print(f"🚀 {NOMBRE_BOT} - EN CAZA REAL")
+    sys.stdout.flush()
+    
     while True:
-        p, d, a = obtener_indicadores()
-        if p:
-            print(f"💗 [LATIDO] P: {p} | DIST: {d:.2f} | ADX: {a:.2f}")
+        precio, dist, adx = obtener_datos_mercado()
+        
+        if precio is not None:
+            # Latido con flush para Railway
+            print(f"💓 [LATIDO] P: {precio} | DIST: {dist:.2f} | ADX: {adx:.2f}")
             sys.stdout.flush()
 
-            # Lógica de entrada Ale
-            if d >= DISTANCIA_MIN:
-                if a >= ADX_HACHAZO:
-                    abrir_hachazo("🔱 HACHAZO SEGURO")
-                    time.sleep(3600) # Pausa tras éxito
-                elif a >= ADX_CAZADORA:
-                    abrir_hachazo("🎯 SEÑAL CAZADORA")
-                    time.sleep(3600)
+            # Lógica Ale: Entrar si Distancia > 5 y ADX > 19
+            if dist >= 5.0 and adx >= 19.0:
+                margen = CAPITAL_TOTAL * PORCENTAJE_OP
+                print(f"🔥 SEÑAL DETECTADA - Ejecutando Margen ${margen:.2f}")
+                # client.futures_create_order(symbol=SIMBOLO, side='BUY', type='MARKET', quantity=0.03)
+                sys.stdout.flush()
+                time.sleep(1800) # Pausa de seguridad
         
-        time.sleep(45) # Ritmo perfecto para Railway y Binance
+        time.sleep(45) # Ritmo anti-bloqueo
 
 if __name__ == "__main__":
     main()
