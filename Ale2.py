@@ -3,19 +3,19 @@ import pandas as pd
 import numpy as np
 from binance.client import Client
 
-def ejecutar():
+def gladiador():
     sym = 'ETHUSDT'
     try:
-        # Conexión limpia
+        # El bot busca las variables que pusiste en Railway
         client = Client(os.getenv('API_KEY'), os.getenv('API_SECRET'))
-        print("⚔️ Gladiador ETH: Conexión Exitosa - ARRANCANDO DE CERO")
+        print("⚔️ Gladiador ETH: Conexión Exitosa - SISTEMA NUEVO")
     except Exception as e:
         print(f"❌ Error API: {e}")
         return
 
     while True:
         try:
-            # 1. Datos e Indicadores (Todo aquí adentro)
+            # 1. Datos e Indicadores
             k = client.futures_klines(symbol=sym, interval='5m', limit=100)
             df = pd.DataFrame(k, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
             df['close'] = pd.to_numeric(df['c'])
@@ -34,7 +34,7 @@ def ejecutar():
             m_di = 100 * (m_dm.rolling(14).mean() / atr).iloc[-1]
             adx = (100 * abs(p_di - m_di) / (p_di + m_di)) if (p_di + m_di) != 0 else 0
             
-            # 2. Posición y Señal
+            # 2. Posición
             pos = client.futures_position_information(symbol=sym)
             amt = next(float(i['positionAmt']) for i in pos if i['symbol'] == sym)
             
@@ -45,7 +45,7 @@ def ejecutar():
             
             print(f"🔎 ETH:{p_act} | ADX:{round(adx,1)} | Señal:{dec} | Pos:{amt}")
 
-            # 3. Operatoria (20% Compuesto + Distancia 9)
+            # 3. Operar (20% Compuesto + Distancia 9)
             if amt == 0 and dec in ["LONG", "SHORT"]:
                 bal = client.futures_account_balance()
                 cap = next(float(b['balance']) for b in bal if b['asset'] == 'USDT')
@@ -54,16 +54,16 @@ def ejecutar():
                 side = 'BUY' if dec == "LONG" else 'SELL'
                 client.futures_create_order(symbol=sym, side=side, type='MARKET', quantity=qty)
                 
-                # ESCUDO TRAILING 0.9%
+                # ESCUDO DISTANCIA 9 (0.9%)
                 inv = 'SELL' if side == 'BUY' else 'BUY'
                 client.futures_create_order(symbol=sym, side=inv, type='TRAILING_STOP_MARKET', callbackRate=0.9, quantity=qty, reduceOnly=True)
-                print(f"🚀 {dec} abierto con Distancia 9")
+                print(f"🚀 Entrada {dec} - Escudo 0.9% OK")
 
         except Exception as e:
-            print(f"⚠️ Error en ciclo: {e}")
+            print(f"⚠️ Reintentando... {e}")
         
         sys.stdout.flush()
         time.sleep(30)
 
 if __name__ == "__main__":
-    ejecutar()
+    gladiador()
