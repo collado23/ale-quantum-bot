@@ -4,40 +4,54 @@ import pandas as pd
 import numpy as np
 from binance.client import Client
 
-# --- CONFIGURACIÓN DE PODER ---
-NOMBRE_BOT = "GATITO QUANTUM v8 - INMORTAL"
-API_KEY = 'TU_API_KEY'
-SECRET_KEY = 'TU_SECRET_KEY'
+# ==========================================
+# 🔱 CONFIGURACIÓN DE IDENTIDAD
+# ==========================================
+NOMBRE_BOT = "GATITO QUANTUM v9 - REACCIÓN"
+API_KEY = 'TU_API_KEY_AQUI'  # <--- Poné tu llave entre las comillas
+SECRET_KEY = 'TU_SECRET_KEY_AQUI' # <--- Poné tu llave secreta entre las comillas
+
+# --- PARÁMETROS ESTRATÉGICOS ---
 SIMBOLO = 'ETHUSDT'
 CAPITAL_TOTAL = 36.02
 PORCENTAJE_OP = 0.20
 LEVERAGE = 10
+DISTANCIA_MIN = 5.0
+ADX_HACHAZO = 24.0
+ADX_CAZADORA = 19.0
 
+# Inicialización de conexión
 client = Client(API_KEY, SECRET_KEY)
 
-def obtener_datos_blindados():
-    """Trae 500 velas para asegurar que la EMA 200 funcione siempre"""
+# ==========================================
+# 🔱 MOTOR DE CÁLCULO Y CONEXIÓN
+# ==========================================
+
+def obtener_datos():
+    """Trae datos de Binance y calcula EMA y ADX"""
     try:
-        # Pedimos 500 velas para que sobre historial
+        print("📡 Solicitando velas a Binance...") 
+        sys.stdout.flush()
+        
+        # Pedimos 500 velas para que la EMA 200 sea ultra precisa
         klines = client.futures_klines(symbol=SIMBOLO, interval='5m', limit=500)
         
         if not klines or len(klines) < 200:
+            print(f"⏳ Historial insuficiente ({len(klines)} velas). Reintentando...")
             return None, None, None
 
-        # Crear DataFrame con nombres de columnas correctos
+        # Estructura de datos
         df = pd.DataFrame(klines, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
-        
-        # Convertir a flotantes de forma segura
-        df['close'] = pd.to_numeric(df['c'], errors='coerce')
-        df['high'] = pd.to_numeric(df['h'], errors='coerce')
-        df['low'] = pd.to_numeric(df['l'], errors='coerce')
+        df['close'] = pd.to_numeric(df['c'])
+        df['high'] = pd.to_numeric(df['h'])
+        df['low'] = pd.to_numeric(df['l'])
 
-        # 1. EMA 200 (Corazón de la estrategia)
+        # 1. Cálculo de EMA 200
         ema200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
-        precio_actual = df['close'].iloc[-1]
-        distancia = abs(precio_actual - ema200)
-
-        # 2. ADX Matemático Real (Fuerza de Ale)
+        p = df['close'].iloc[-1]
+        d = abs(p - ema200)
+        
+        # 2. Cálculo de ADX (Lógica Ale)
         plus_dm = df['high'].diff().clip(lower=0)
         minus_dm = (-df['low'].diff()).clip(lower=0)
         tr = np.maximum(df['high'] - df['low'], 
@@ -47,38 +61,50 @@ def obtener_datos_blindados():
         plus_di = 100 * (plus_dm.rolling(window=14).mean() / atr)
         minus_di = 100 * (minus_dm.rolling(window=14).mean() / atr)
         dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
-        adx_actual = dx.rolling(window=14).mean().iloc[-1]
+        a = dx.rolling(window=14).mean().iloc[-1]
 
-        return precio_actual, distancia, adx_actual
+        return p, d, a
 
     except Exception as e:
-        # Aquí es donde fallaba antes, ahora solo avisamos y seguimos
-        print(f"📡 Sincronizando con Binance... ({e})")
+        print(f"⚠️ Error de conexión: {e}")
         sys.stdout.flush()
         return None, None, None
 
+# ==========================================
+# 🔱 BUCLE DE OPERACIÓN (Vigilancia 24/7)
+# ==========================================
+
 def main():
-    print(f"🚀 {NOMBRE_BOT} - SISTEMA CHAJÁ ONLINE")
+    print(f"🚀 {NOMBRE_BOT} ARRANCANDO...")
     sys.stdout.flush()
     
     while True:
-        p, d, a = obtener_datos_blindados()
+        # 1. Obtener precio, distancia y ADX
+        p, d, a = obtener_datos()
         
         if p is not None:
-            # Latido Real con datos del mercado
-            print(f"💓 [ESTADO] P: {p:.2f} | DIST: {d:.2f} | ADX: {a:.2f}")
+            # 2. Latido para Railway (con hora)
+            hora = time.strftime('%H:%M:%S')
+            print(f"💓 [{hora}] P: {p:.2f} | DIST: {d:.2f} | ADX: {a:.2f}")
             sys.stdout.flush()
 
-            # Lógica de Disparo (Distancia > 5 y ADX > 19)
-            if d >= 5.0 and a >= 19.0:
-                margen = CAPITAL_TOTAL * PORCENTAJE_OP
-                print(f"🔥 SEÑAL DETECTADA: Margen ${margen:.2f}")
-                # client.futures_create_order(symbol=SIMBOLO, side='BUY', type='MARKET', quantity=0.03)
-                sys.stdout.flush()
-                time.sleep(1800) # Dormir tras operar para proteger el capital
+            # 3. Lógica de disparo Ale
+            if d >= DISTANCIA_MIN:
+                if a >= ADX_HACHAZO:
+                    print(f"🔱 HACHAZO SEGURO DETECTADO (ADX {a:.2f})")
+                    # client.futures_create_order(symbol=SIMBOLO, side='BUY', type='MARKET', quantity=0.03)
+                    sys.stdout.flush()
+                    time.sleep(1800) # Pausa tras éxito
+                elif a >= ADX_CAZADORA:
+                    print(f"🎯 SEÑAL CAZADORA DETECTADA (ADX {a:.2f})")
+                    # client.futures_create_order(symbol=SIMBOLO, side='BUY', type='MARKET', quantity=0.03)
+                    sys.stdout.flush()
+                    time.sleep(1800)
         
-        # Espera de 45 segundos para no saturar la conexión
-        time.sleep(45)
+        # 4. Pausa de ciclo
+        print("💤 Esperando 30 segundos para el próximo escaneo...")
+        sys.stdout.flush()
+        time.sleep(30)
 
 if __name__ == "__main__":
     main()
