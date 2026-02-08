@@ -1,4 +1,1 @@
-import Ale2
-
-if __name__ == "__main__":
-    Ale2.ejecutar_sistema()
+import Ale2; Ale2.ejecutar_sistema()
