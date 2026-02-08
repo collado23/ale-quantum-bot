@@ -3,6 +3,8 @@ import numpy as np
 
 def analizar_mercado(client, simbolo):
     try:
+        # Aquí abajo ya van los 4 espacios de rigor
+        klines = client.futures_klines(symbol=simbolo, interval='5m', limit=300)
         # 📊 Datos para EMA 200 y DMI
         klines = client.futures_klines(symbol=simbolo, interval='5m', limit=300)
         df = pd.DataFrame(klines, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
