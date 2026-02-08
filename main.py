@@ -77,7 +77,7 @@ def main_loop():
             if d >= DISTANCIA_MIN:
                 if a >= ADX_HACHAZO:
                     print("🔱 HACHAZO DETECTADO")
-                    # client.futures_create_order(...)
+                    client.futures_create_order(...)
                 elif a >= ADX_CAZADORA:
                     print("🎯 CAZADORA DETECTADA")
             
