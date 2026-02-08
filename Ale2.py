@@ -3,23 +3,24 @@ import pandas as pd
 import numpy as np
 from binance.client import Client
 
-# CONFIGURACIÓN
+# 1. CONFIGURACIÓN TOTAL
 symbol = 'ETHUSDT'
-api_key = os.getenv('API_KEY')
+# Poné tus llaves acá entre las comillas si Railway sigue fallando
+api_key = os.getenv('API_KEY') 
 api_secret = os.getenv('API_SECRET')
 
 def ejecutar():
-    print("🚀 INICIANDO GLADIADOR...")
+    print("🚀 MOTOR GLADIADOR: ON")
     try:
         client = Client(api_key, api_secret)
-        print("⚔️ CONEXIÓN EXITOSA")
+        print("⚔️ Conexión Exitosa con Binance Futures")
     except Exception as e:
-        print(f"❌ ERROR API: {e}")
+        print(f"❌ Error de Llaves: {e}")
         return
 
     while True:
         try:
-            # 1. DATOS (300 VELAS)
+            # 2. DATOS (300 VELAS - Como pediste)
             k = client.futures_klines(symbol=symbol, interval='5m', limit=300)
             df = pd.DataFrame(k, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
             df['close'] = pd.to_numeric(df['c'])
@@ -29,7 +30,7 @@ def ejecutar():
             p_act = df['close'].iloc[-1]
             ema = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
             
-            # ADX
+            # ADX 
             p_dm = (df['high'].diff()).clip(lower=0)
             m_dm = (-df['low'].diff()).clip(lower=0)
             tr = np.maximum(df['high']-df['low'], np.maximum(abs(df['high']-df['close'].shift(1)), abs(df['low']-df['close'].shift(1))))
@@ -38,11 +39,11 @@ def ejecutar():
             m_di = 100 * (m_dm.rolling(14).mean() / atr).iloc[-1]
             adx = (100 * abs(p_di - m_di) / (p_di + m_di)) if (p_di + m_di) != 0 else 0
 
-            # 2. POSICIÓN
+            # 3. POSICIÓN ACTUAL
             pos = client.futures_position_information(symbol=symbol)
             amt = next(float(i['positionAmt']) for i in pos if i['symbol'] == symbol)
 
-            # 3. LÓGICA
+            # 4. LÓGICA DE ENTRADA
             dec = "ESPERAR"
             if adx > 25:
                 if p_act > ema and p_di > m_di: dec = "LONG"
@@ -50,21 +51,23 @@ def ejecutar():
 
             print(f"🔎 ETH: {p_act} | ADX: {round(adx,1)} | Señal: {dec} | Pos: {amt}")
 
-            # 4. TRADING (20% Compuesto)
+            # 5. EJECUCIÓN (20% INTERÉS COMPUESTO x10)
             if amt == 0 and dec in ["LONG", "SHORT"]:
                 bal = client.futures_account_balance()
                 cap = next(float(b['balance']) for b in bal if b['asset'] == 'USDT')
+                # Cálculo de cantidad: (20% del capital * 10 de apalancamiento)
                 qty = round(((cap * 0.20) * 10) / p_act, 3)
                 
                 side = 'BUY' if dec == "LONG" else 'SELL'
                 client.futures_create_order(symbol=symbol, side=side, type='MARKET', quantity=qty)
                 
+                # ESCUDO TRAILING 0.9%
                 inv = 'SELL' if side == 'BUY' else 'BUY'
                 client.futures_create_order(symbol=symbol, side=inv, type='TRAILING_STOP_MARKET', callbackRate=0.9, quantity=qty, reduceOnly=True)
-                print(f"🚀 ENTRADA: {dec}")
+                print(f"🚀 ENTRADA REALIZADA: {dec}")
 
         except Exception as e:
-            print(f"⏳ Esperando datos... ({e})")
+            print(f"⚠️ Aviso: {e}")
             time.sleep(10)
         
         sys.stdout.flush()
