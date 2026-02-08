@@ -2,79 +2,123 @@ import time
 import sys
 import pandas as pd
 import numpy as np
-# Importación blindada para Binance
-try:
-    from binance.client import Client
-except ImportError:
-    print("❌ Error: Falta instalar python-binance")
+from binance.client import Client
 
-# --- CONFIGURACIÓN DE IDENTIDAD ---
+# ==========================================
+# 🔱 CONFIGURACIÓN DE IDENTIDAD Y SEGURIDAD
+# ==========================================
 NOMBRE_BOT = "GATITO QUANTUM v6 GOLD"
 API_KEY = 'TU_API_KEY_AQUI'
 SECRET_KEY = 'TU_SECRET_KEY_AQUI'
 
-# --- PARÁMETROS ESTRATÉGICOS (Tu Capital) ---
+# --- PARÁMETROS TÉCNICOS (Tus Reglas) ---
 SIMBOLO = 'ETHUSDT'
-CAPITAL_TOTAL = 36.02
-PORCENTAJE_OP = 0.20
-LEVERAGE = 10
-DISTANCIA_MIN = 5.0
-ADX_HACHAZO = 24.0
-ADX_CAZADORA = 19.0
+CAPITAL_TOTAL = 36.02       # Capital inicial detectado
+PORCENTAJE_OP = 0.20        # 20% Interés Compuesto
+LEVERAGE = 10               # x10 siempre
+DISTANCIA_MIN = 5.0         # Filtro de seguridad
+ADX_HACHAZO = 24.0          # Señal de Poder
+ADX_CAZADORA = 19.0         # Señal Rápida
 
-# Inicialización del Cliente
+# Inicializar conexión con Binance
 client = Client(API_KEY, SECRET_KEY)
 
-def obtener_indicadores():
-    """Calcula variables reales y soluciona el error de 'close'"""
+# ==========================================
+# 🔱 MOTOR DE CÁLCULO (El Cerebro)
+# ==========================================
+
+def obtener_datos_mercado():
+    """Trae velas reales y calcula EMA y ADX"""
     try:
+        # Pedimos las últimas 100 velas de 5 minutos
         klines = client.futures_klines(symbol=SIMBOLO, interval='5m', limit=100)
-        if not klines:
-            return None, None, None
-            
-        df = pd.DataFrame(klines, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tbb','i'])
+        df = pd.DataFrame(klines, columns=['time','open','high','low','close','vol','ct','qv','nt','tb','tbb','i'])
+        
+        # Convertir a números
         df['close'] = df['close'].astype(float)
-        
+        df['high'] = df['high'].astype(float)
+        df['low'] = df['low'].astype(float)
+
+        # 1. Calcular EMA 200
         ema200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
-        precio = df['close'].iloc[-1]
-        distancia = abs(precio - ema200)
+        precio_actual = df['close'].iloc[-1]
         
-        # Aquí va tu lógica de ADX de Ale2.py
-        adx_actual = 20.0 
+        # 2. Calcular Distancia
+        distancia = abs(precio_actual - ema200)
+
+        # 3. Calcular ADX (Fuerza real)
+        plus_dm = df['high'].diff()
+        minus_dm = -df['low'].diff()
+        plus_dm[plus_dm < 0] = 0
+        minus_dm[minus_dm < 0] = 0
         
-        return precio, distancia, adx_actual
+        tr = np.maximum(df['high'] - df['low'], 
+                        np.maximum(abs(df['high'] - df['close'].shift(1)), 
+                                   abs(df['low'] - df['close'].shift(1))))
+        atr = tr.rolling(window=14).mean()
+        
+        plus_di = 100 * (plus_dm.rolling(window=14).mean() / atr)
+        minus_di = 100 * (minus_dm.rolling(window=14).mean() / atr)
+        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+        adx_final = dx.rolling(window=14).mean().iloc[-1]
+
+        return precio_actual, distancia, adx_final
+
     except Exception as e:
-        print(f"⚠️ Error de datos: {e}")
+        print(f"⚠️ Error en lectura de datos: {e}")
         return None, None, None
 
 def latido_quantum(p, d, a):
-    """Evita el 'Stopping Container' manteniendo el log activo"""
+    """Mantiene el log activo y evita el 'Stopping Container'"""
     hora = time.strftime('%H:%M:%S')
-    print(f"💓 [LATIDO {hora}] P: {p} | DIST: {d:.2f} | ADX: {a}")
-    sys.stdout.flush() # Comando maestro para Railway
+    print(f"💓 [LATIDO {hora}] P: {p} | DIST: {d:.2f} | ADX: {a:.2f}")
+    sys.stdout.flush() # Obliga a Railway a registrar actividad
+
+def abrir_operacion(tipo_señal, saldo):
+    """Calcula el margen del 20% y ejecuta la orden x10"""
+    margen = saldo * PORCENTAJE_OP
+    total_posicion = margen * LEVERAGE
+    
+    print(f"🔥 {tipo_señal} DETECTADA")
+    print(f"✅ Ejecutando: Margen ${margen:.2f} | Posición Total: ${total_posicion:.2f}")
+    
+    try:
+        # Aquí iría la orden real (Descomentar para usar)
+        # client.futures_create_order(symbol=SIMBOLO, side='BUY', type='MARKET', quantity=...)
+        pass
+    except Exception as e:
+        print(f"❌ Error al ejecutar en Binance: {e}")
+
+# ==========================================
+# 🔱 BUCLE PRINCIPAL (Vigilancia 24/7)
+# ==========================================
 
 def main():
-    print(f"🚀 {NOMBRE_BOT} INICIADO")
-    print(f"💰 Capital: ${CAPITAL_TOTAL} | Dual (19/24)")
+    print(f"🚀 {NOMBRE_BOT} - SISTEMA CHAJÁ INICIADO")
+    print(f"💰 Operando con capital de: ${CAPITAL_TOTAL}")
     
+    operacion_abierta = False
+
     while True:
-        precio, dist, adx = obtener_indicadores()
+        # 1. Obtener indicadores reales
+        precio, dist, adx = obtener_datos_mercado()
         
         if precio is not None:
+            # 2. Latido de seguridad
             latido_quantum(precio, dist, adx)
             
-            # Lógica Dual de Ale
-            if dist >= DISTANCIA_MIN:
-                if adx >= ADX_HACHAZO:
-                    print(f"🔱 HACHAZO SEGURO DETECTADO")
-                    # client.futures_create_order(...)
-                    time.sleep(1200)
-                elif adx >= ADX_CAZADORA:
-                    print(f"🎯 ENTRADA CAZADORA DETECTADA")
-                    # client.futures_create_order(...)
-                    time.sleep(1200)
-        
-        time.sleep(30) # Escaneo constante cada 30 segundos
+            # 3. Lógica de decisión Ale (Dual 19/24)
+            if not operacion_abierta:
+                if dist >= DISTANCIA_MIN:
+                    if adx >= ADX_HACHAZO:
+                        abrir_operacion("🔱 HACHAZO SEGURO (ADX 24)", CAPITAL_TOTAL)
+                        operacion_abierta = True # Evita duplicar órdenes
+                    elif adx >= ADX_CAZADORA:
+                        abrir_operacion("🎯 ENTRADA CAZADORA (ADX 19)", CAPITAL_TOTAL)
+                        operacion_abierta = True
+            
+        # Esperar 30 segundos antes de la próxima lectura
+        time.sleep(30)
 
 if __name__ == "__main__":
     main()
