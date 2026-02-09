@@ -4,7 +4,7 @@ import numpy as np
 import time
 
 def generar_espejo_eth():
-    print("📡 Conectando con la base de datos de Yahoo Finance para ETH...")
+    print("📡 Conectando con la base de datos de Yahoo Finance para ETH...") 
     
     # 1. Descargamos 5 años para tener un margen sólido de 4 años limpios
     data = yf.download("ETH-USD", period="5y", interval="1d", progress=False)
