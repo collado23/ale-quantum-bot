@@ -34,15 +34,12 @@ def calcular_adx(df, length=14):
 def ejecutar_gladiador():
     print(f"🔱 ALE2.py COMPLETO - MONITOREANDO {symbol}")
     
-    try:
-        client.futures_change_leverage(symbol=symbol, leverage=leverage)
-    except:
-        pass
-
     while True:
         try:
             # DESCARGA DE DATOS
             klines = client.futures_klines(symbol=symbol, interval='5m', limit=150)
+            if not klines: continue
+            
             df = pd.DataFrame(klines, columns=['time','open','high','low','close','vol','ct','q','n','tb','tq','i'])
             df[['high','low','close']] = df[['high','low','close']].astype(float)
             
@@ -63,9 +60,8 @@ def ejecutar_gladiador():
 
             # REVISAR POSICIÓN
             pos = client.futures_position_information(symbol=symbol)
-            # Buscamos la posición específica del símbolo
-            pos_act = next((p for p in pos if p['symbol'] == symbol), None)
-            en_vuelo = float(pos_act['positionAmt']) != 0 if pos_act else False
+            datos_pos = next((p for p in pos if p['symbol'] == symbol), None)
+            en_vuelo = float(datos_pos['positionAmt']) != 0 if datos_pos else False
 
             if not en_vuelo:
                 # ESTRATEGIA SHORT
@@ -74,7 +70,7 @@ def ejecutar_gladiador():
                     qty = (balance * capital_percent * leverage) / precio
                     client.futures_create_order(symbol=symbol, side=SIDE_SELL, type=ORDER_TYPE_MARKET, quantity=round(qty, 3))
                     client.futures_create_order(symbol=symbol, side=SIDE_BUY, type='TRAILING_STOP_MARKET', quantity=round(qty, 3), callbackRate=0.5, workingType='MARK_PRICE')
-                    print(f"🔥 DISPARO SHORT - ADX {adx_val:.1f} CONFIRMADO")
+                    print(f"🔥 DISPARO SHORT CONFIRMADO")
 
                 # ESTRATEGIA LONG
                 elif adx_val > 26 and distancia > 9 and macd_l > macd_s:
@@ -82,16 +78,12 @@ def ejecutar_gladiador():
                     qty = (balance * capital_percent * leverage) / precio
                     client.futures_create_order(symbol=symbol, side=SIDE_BUY, type=ORDER_TYPE_MARKET, quantity=round(qty, 3))
                     client.futures_create_order(symbol=symbol, side=SIDE_SELL, type='TRAILING_STOP_MARKET', quantity=round(qty, 3), callbackRate=0.5, workingType='MARK_PRICE')
-                    print(f"🚀 DISPARO LONG - ADX {adx_val:.1f} CONFIRMADO")
-            else:
-                # Si estamos en posición, solo monitoreamos sin intentar abrir otra
-                pass
-
+                    print(f"🚀 DISPARO LONG CONFIRMADO")
+            
             time.sleep(30)
 
         except Exception as e:
-            print(f"⚠️ Reintentando: {e}")
-            time.sleep(20)
+            time.sleep(10)
 
 if __name__ == "__main__":
     ejecutar_gladiador()
