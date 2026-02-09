@@ -1,57 +1,45 @@
 import yfinance as yf
 import pandas as pd
 import os
-import sys
 
-def inyeccion_adn_eth():
-    nombre_archivo = "espejo_cuantico_eth.txt"
+def descargar_adn_eth_5m():
+    archivo = "espejo_eth.txt"
+    simbolo = "ETH-USD"
+
+    print(f"📡 Descargando micro-ciclos de 5 minutos para {simbolo}...")
     
-    print("🧹 PASO 1: Limpiando archivos viejos...")
-    # Borramos CUALQUIER archivo que pueda estar causando conflicto
-    archivos_a_borrar = [nombre_archivo, "espejo_cuantico.txt"]
-    for arc in archivos_a_borrar:
-        if os.path.exists(arc):
-            try:
-                os.remove(arc)
-                print(f"🗑️ Eliminado con éxito: {arc}")
-            except:
-                print(f"⚠️ No se pudo borrar {arc}, intentando sobreescribir...")
+    # Bajamos los últimos 60 días (el máximo permitido para 5m)
+    # Esto genera miles de filas de datos, suficiente para el ADN
+    df = yf.download(simbolo, period="60d", interval="5m", progress=False)
+    
+    if df.empty:
+        print("❌ Error: No se pudo descargar la data. Revisá internet.")
+        return
 
-    print("\n📡 PASO 2: Descargando 4 años de historia pura de ETH...")
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    print("🧠 Calculando EMA 200 y Elasticidad Cuántica...")
+    # Calculamos la EMA 200 sobre velas de 5 minutos
+    df['ema200'] = df['Close'].ewm(span=200, adjust=False).mean()
+    df['distancia'] = ((df['Close'] - df['ema200']) / df['ema200']) * 100
+
+    # Filtramos los latigazos de ETH (En 5m, un 1.5% o 1.8% ya es señal de rebote)
+    adn_puro = df[abs(df['distancia']) > 1.5].copy()
+
     try:
-        # Descargamos ETH-USD (5 años para asegurar 200 días de EMA inicial)
-        df = yf.download("ETH-USD", period="5y", interval="1d", progress=False)
+        with open(archivo, "w") as f:
+            f.write("# ADN_ETH_5M_ULTIMOS_60_DIAS\n")
+            for fecha, fila in adn_puro.iterrows():
+                # Guardamos: Timestamp, Distancia, Precio
+                f.write(f"{int(fecha.timestamp())},{fila['distancia']:.2f},{fila['Close']:.2f}\n")
         
-        if df.empty:
-            print("❌ ERROR: No se pudieron descargar datos de Yahoo. Revisá tu conexión.")
-            return
-
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-
-        # Cálculo de la Física Cuántica (EMA 200)
-        df['ema'] = df['Close'].ewm(span=200, adjust=False).mean()
-        df['dist'] = ((df['Close'] - df['ema']) / df['ema']) * 100
-        
-        # Filtramos los momentos de tensión (>1.8%)
-        adn = df[abs(df['dist']) > 1.8].copy()
-
-        print(f"\n🧠 PASO 3: Grabando {len(adn)} patrones en el nuevo Espejo...")
-        
-        # Abrimos con 'w+' para asegurar que se cree de cero y se pueda escribir
-        with open(nombre_archivo, "w+") as f:
-            f.write("# ADN_ETHEREUM_4_AÑOS_LIMPIO\n")
-            for fecha, fila in adn.iterrows():
-                f.write(f"{int(fecha.timestamp())},{fila['dist']:.2f},{fila['Close']:.2f}\n")
-            # Forzamos al sistema a guardar en disco
-            f.flush()
-            os.fsync(f.fileno())
-
-        print(f"\n✅ ¡PROCESO COMPLETADO!")
-        print(f"📂 El archivo '{nombre_archivo}' ahora es 100% ETHEREUM.")
+        print(f"✅ ¡ADN 5M CARGADO! Se encontraron {len(adn_puro)} puntos de alta tensión.")
+        print(f"📂 Archivo generado: {archivo}")
+        print("💡 Ahora subí este archivo a tu GitHub para que Ale2.py lo use.")
         
     except Exception as e:
-        print(f"❌ ERROR CRÍTICO: {e}")
+        print(f"⚠️ Error al guardar: {e}")
 
 if __name__ == "__main__":
-    inyeccion_adn_eth()
+    descargar_adn_eth_5m()
