@@ -1,49 +1,44 @@
 import yfinance as yf
 import pandas as pd
-import numpy as np
-import time
+import os
 
-def generar_espejo_eth():
-    print("📡 Conectando con la base de datos de Yahoo Finance para ETH...") 
+def resetear_y_cargar_adn_eth():
+    archivo = "espejo_cuantico_eth.txt"
     
-    # 1. Descargamos 5 años para tener un margen sólido de 4 años limpios
-    data = yf.download("ETH-USD", period="5y", interval="1d", progress=False)
+    # 1. Forzamos el borrado del archivo viejo si existe para que no se pegue
+    if os.path.exists(archivo):
+        os.remove(archivo)
+        print(f"🗑️ Archivo viejo eliminado: {archivo}")
+
+    print("📡 Descargando ADN fresco de Ethereum (Últimos 4 años)...")
     
-    # Limpieza de columnas por si vienen en formato MultiIndex
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(0)
+    # 2. Descargamos la data de ETH-USD
+    # Usamos un periodo de 5 años para asegurar 4 años de EMA 200 bien calculada
+    df = yf.download("ETH-USD", period="5y", interval="1d", progress=False)
     
-    df = data.copy()
-    
-    # 2. Cálculo de la Distancia Cuántica (EMA 200)
-    # Usamos 200 días para la historia larga, que es la que marca la tendencia de capital
-    df['ema'] = df['Close'].ewm(span=200, adjust=False).mean()
-    df['elast'] = ((df['Close'] - df['ema']) / df['ema']) * 100
-    
-    # 3. Filtramos los "Latigazos" (Picos donde el elástico se estiró más de 1.8%)
-    # Para ETH, un 1.8% en diario es una señal de gran movimiento
-    picos = df[abs(df['elast']) > 1.8].copy()
-    
-    print(f"🧠 Analizando ciclos... Se detectaron {len(picos)} patrones de alta ganancia.")
-    
-    # 4. Guardamos en el archivo TXT para que el bot lo use de espejo
-    nombre_archivo = "espejo_cuantico_eth.txt"
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    # 3. Calculamos la EMA 200 y la Distancia (La física del espejo)
+    df['ema200'] = df['Close'].ewm(span=200, adjust=False).mean()
+    df['distancia'] = ((df['Close'] - df['ema200']) / df['ema200']) * 100
+
+    # 4. Filtramos solo los momentos donde el elástico se estiró de verdad (>1.8%)
+    # Esto es lo que el bot usará para comparar en el futuro
+    adn_puro = df[abs(df['distancia']) > 1.8].copy()
+
+    # 5. Guardamos el nuevo archivo limpio
     try:
-        with open(nombre_archivo, "w") as f:
-            # Escribimos una cabecera para que sepas qué es cada cosa
-            f.write("# Fecha_Unix,Elasticidad,ROI_Historico_Estimado\n")
-            for index, row in picos.iterrows():
-                # Convertimos la fecha a timestamp (formato que entiende el bot)
-                unix_time = int(time.mktime(index.timetuple()))
-                # Estimamos un ROI de regreso según la elasticidad (física pura)
-                roi_estimado = abs(row['elast']) * 0.9 
-                f.write(f"{unix_time},{row['elast']:.2f},{roi_estimado:.2f}\n")
+        with open(archivo, "w") as f:
+            f.write("# ADN_ETH_4_AÑOS\n")
+            for fecha, fila in adn_puro.iterrows():
+                # Guardamos: Fecha (Unix), Distancia, Precio
+                f.write(f"{int(fecha.timestamp())},{fila['distancia']:.2f},{fila['Close']:.2f}\n")
         
-        print(f"✅ ¡Éxito! El archivo '{nombre_archivo}' ha sido creado con 4 años de ADN.")
-        print("🚀 Ahora Ethereum ya tiene memoria para no repetir errores.")
-        
+        print(f"✅ ¡ADN Ethereum cargado con éxito! {len(adn_puro)} patrones detectados.")
+        print(f"📂 Archivo listo: {archivo}")
     except Exception as e:
-        print(f"⚠️ Error al crear el espejo: {e}")
+        print(f"⚠️ Error: {e}")
 
 if __name__ == "__main__":
-    generar_espejo_eth()
+    resetear_y_cargar_adn_eth()
