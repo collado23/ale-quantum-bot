@@ -1,4 +1,4 @@
-import os, time, pandas as pd, numpy as np 
+import os, time, pandas as pd, numpy as np  
 import yfinance as yf
 from binance.client import Client
 
