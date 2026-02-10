@@ -7,7 +7,7 @@ INTERES_COMPUESTO = 0.20        # 20% de gestión de capital
 MODO_RESCATE = True             # EVITA que cierre la operación de -3.4% actual
 
 # Variables de seguimiento
-contador_velas_subida = 15      # Ejemplo basado en tu análisis previo
+contador_velas_subida = 15      # Ejemplo basado en tu análisis previo 
 contador_velas_bajada = 0
 picos_detectados = 0
 roi_actual = -3.4               # Tu ROI actual de ETH
