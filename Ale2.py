@@ -1,63 +1,56 @@
 import os, time
-from datetime import datetime
 from binance.client import Client
 
-# CONEXIÓN ULTRA-RÁPIDA
-def conectar():
+# CONEXIÓN DIRECTA SIN TEXTO
+def c():
     return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
 
-client = conectar()
-# CAMBIO: Sacamos SOL, entra BNB
-monedas = ['ETHUSDT', 'BNBUSDT', 'BTCUSDT']
-stats = {m: {'neto': 0.0, 'ops': 0, 'en': False, 'p': 0, 't': '', 'mx': -99.0, 'be': False} for m in monedas}
+cl = c()
+ms = ['ETHUSDT', 'BNBUSDT', 'BTCUSDT']
+st = {m: {'n': 0.0, 'o': 0, 'e': False, 'p': 0, 't': '', 'm': -9.0, 'b': False} for m in ms}
 
-def nison(k1, k2):
+def ni(k1, k2):
     o, h, l, c = float(k1[1]), float(k1[2]), float(k1[3]), float(k1[4])
     cp = abs(c - o) if abs(c - o) > 0 else 0.001
-    mi, ms = min(o, c) - l, h - max(o, c)
+    mi, ms_ = min(o, c) - l, h - max(o, c)
     op_p, cl_p = float(k2[1]), float(k2[4])
     cp_p = abs(cl_p - op_p)
-    # PATRONES NISON AGRESIVOS
-    if mi > (cp * 2.5) and ms < (cp * 0.7): return "🔨" # Martillo
-    if ms > (cp * 2.5) and mi < (cp * 0.7): return "☄️" # Estrella
-    if c > o and cl_p < op_p and cp > (cp_p * 1.1): return "🌊V" # Env. Verde
-    if c < o and cl_p > op_p and cp > (cp_p * 1.1): return "🌊R" # Env. Roja
+    if mi > (cp * 2.5) and ms_ < (cp * 0.7): return "🔨"
+    if ms_ > (cp * 2.5) and mi < (cp * 0.7): return "☄️"
+    if c > o and cl_p < op_p and cp > (cp_p * 1.1): return "V"
+    if c < o and cl_p > op_p and cp > (cp_p * 1.1): return "R"
     return "."
 
-print("🔱 SNIPER: ETH | BNB | BTC 🔱")
+print("📡 SISTEMA ON")
 
 while True:
     try:
-        for m in monedas:
-            s = stats[m]
-            px = float(client.get_symbol_ticker(symbol=m)['price'])
-            k = client.get_klines(symbol=m, interval='1m', limit=3)
-            ptr = nison(k[-1], k[-2])
+        for m in ms:
+            s = st[m]
+            px = float(cl.get_symbol_ticker(symbol=m)['price'])
+            k = cl.get_klines(symbol=m, interval='1m', limit=3)
+            p = ni(k[-1], k[-2])
             cr = float(k[-1][4])
 
-            if not s['en']:
-                print(f"{m[:3]}:{ptr}", end=' ')
-                if (("🔨" in ptr or "🌊V" in ptr) and px > cr) or \
-                   (("☄️" in ptr or "🌊R" in ptr) and px < cr):
-                    s['t'] = "LONG" if "V" in ptr or "🔨" in ptr else "SHORT"
-                    s['p'], s['en'], s['mx'], s['be'] = px, True, -99.0, False
-                    print(f"\n🔥 ENTRADA {m}: {s['t']}")
+            if not s['e']:
+                print(f"{m[:2]}:{p}", end=' ')
+                if (("🔨" in p or "V" in p) and px > cr) or (("☄️" in p or "R" in p) and px < cr):
+                    s['t'] = "LONG" if "V" in p or "🔨" in p else "SHORT"
+                    s['p'], s['e'], s['m'], s['b'] = px, True, -9.0, False
+                    print(f"\n🔥 IN {m}")
             else:
                 df = (px - s['p']) / s['p'] if s['t'] == "LONG" else (s['p'] - px) / s['p']
                 roi = (df * 100 * 10) - 0.22
-                if roi > s['mx']: s['mx'] = roi
-                if roi >= 0.18: s['be'] = True # BREAK BAD ACTIVADO
+                if roi > s['m']: s['m'] = roi
+                if roi >= 0.18: s['b'] = True
                 
-                # CIERRES
-                if (s['be'] and roi <= 0.01) or (s['mx'] >= 0.40 and roi <= (s['mx'] - 0.12)) or roi <= -0.55:
-                    res = (30.76 * (roi / 100))
-                    s['neto'] += res
-                    s['ops'] += 1
-                    s['en'] = False
-                    print(f"\n✅ {m} {s['t']} {roi:.2f}% | NETO: ${s['neto']:.4f}")
-                    if s['ops'] % 5 == 0: print(f"📊 {m} BLOQUE 5 OK")
+                if (s['b'] and roi <= 0.01) or (s['m'] >= 0.40 and roi <= (s['m'] - 0.12)) or roi <= -0.55:
+                    s['n'] += (30.76 * (roi / 100))
+                    s['o'] += 1
+                    s['e'] = False
+                    print(f"\n✅ {m} {roi:.2f}% | NETO: {s['n']:.2f}")
 
         time.sleep(15)
-    except Exception as e:
+    except Exception:
         time.sleep(10)
-        client = conectar()
+        cl = c()
