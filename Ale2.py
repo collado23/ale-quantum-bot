@@ -1,13 +1,12 @@
 import os, time
 from binance.client import Client
 
-# CONEXIÓN DIRECTA NÚCLEO
 def c():
     return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
 
 cl = c()
-# MONEDAS: SOL, ETH, BNB (Sin Bitcoin)
-ms = ['SOLUSDT', 'ETHUSDT', 'BNBUSDT']
+# NUEVAS MONEDAS: LINK, ADA, XRP
+ms = ['LINKUSDT', 'ADAUSDT', 'XRPUSDT']
 st = {m: {'n': 0.0, 'o': 0, 'e': False, 'p': 0, 't': '', 'm': -9.0, 'b': False} for m in ms}
 
 def ni(k1, k2):
@@ -17,16 +16,16 @@ def ni(k1, k2):
     op_p, cl_p = float(k2[1]), float(k2[4])
     cp_p = abs(cl_p - op_p)
     
-    # LONG: Filtro exigente (3.0x) para proteger el capital
+    # LONG: Filtro 3.0x (Solo rebotes reales)
     if mi > (cp * 3.0) and ms_ < (cp * 0.5): return "🔨"
     if c_ > o and cl_p < op_p and cp > (cp_p * 1.3): return "V"
     
-    # SHORT: Mantenemos agresividad (2.5x) para aprovechar caídas
+    # SHORT: Agresivo 2.5x (Cazador de techos)
     if ms_ > (cp * 2.5) and mi < (cp * 0.7): return "☄️"
     if c_ < o and cl_p > op_p and cp > (cp_p * 1.2): return "R"
     return "."
 
-print("📡 SISTEMA ON: SO | ET | BN")
+print("📡 SISTEMA ON: LI | AD | XR")
 
 while True:
     try:
@@ -38,20 +37,18 @@ while True:
             cr = float(k[-1][4])
 
             if not s['e']:
-                # Escaneo ultra-rápido en consola
                 print(f"{m[:2]}:{ptr}", end=' ')
                 if (("🔨" in ptr or "V" in ptr) and px > cr) or (("☄️" in ptr or "R" in ptr) and px < cr):
                     s['t'] = "LONG" if "V" in ptr or "🔨" in ptr else "SHORT"
                     s['p'], s['e'], s['m'], s['b'] = px, True, -9.0, False
-                    print(f"\n🔥 IN {m}")
+                    print(f"\n🔥 ENTRADA {m}: {s['t']}")
             else:
-                # ROI con apalancamiento x10 (Regla del 0.22% de Binance)
                 df = (px - s['p']) / s['p'] if s['t'] == "LONG" else (s['p'] - px) / s['p']
-                roi = (df * 100 * 10) - 0.22
+                roi = (df * 100 * 10) - 0.22 # Apalancamiento x10
                 if roi > s['m']: s['m'] = roi
-                if roi >= 0.15: s['b'] = True # Escudo Blindado Rápido
+                if roi >= 0.15: s['b'] = True # Escudo Blindado
                 
-                # Cierre por Blindaje, Trailing Profit o Stop Loss ajustado
+                # CIERRES: Blindaje al 0%, Trailing o Stop al -0.50%
                 if (s['b'] and roi <= 0.0) or (s['m'] >= 0.35 and roi <= (s['m'] - 0.10)) or roi <= -0.50:
                     res = (30.76 * (roi / 100))
                     s['n'] += res; s['o'] += 1; s['e'] = False
