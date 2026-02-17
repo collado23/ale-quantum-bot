@@ -1,59 +1,74 @@
-import os, time
+import os, time, redis, json, threading
+from http.server import BaseHTTPRequestHandler, HTTPServer 
 from binance.client import Client
 
-def c():
-    return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
+# --- 🌐 1. SERVER DE SALUD ---
+class H(BaseHTTPRequestHandler):
+    def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
+def s_h():
+    try: HTTPServer(("0.0.0.0", int(os.getenv("PORT", 8080))), H).serve_forever()
+    except: pass
 
-cl = c()
-# NUEVAS MONEDAS: LINK, ADA, XRP
-ms = ['LINKUSDT', 'ADAUSDT', 'XRPUSDT']
-st = {m: {'n': 0.0, 'o': 0, 'e': False, 'p': 0, 't': '', 'm': -9.0, 'b': False} for m in ms}
-
-def ni(k1, k2):
-    o, h, l, c_ = float(k1[1]), float(k1[2]), float(k1[3]), float(k1[4])
-    cp = abs(c_ - o) if abs(c_ - o) > 0 else 0.001
-    mi, ms_ = min(o, c_) - l, h - max(o, c_)
-    op_p, cl_p = float(k2[1]), float(k2[4])
-    cp_p = abs(cl_p - op_p)
-    
-    # LONG: Filtro 3.0x (Solo rebotes reales)
-    if mi > (cp * 3.0) and ms_ < (cp * 0.5): return "🔨"
-    if c_ > o and cl_p < op_p and cp > (cp_p * 1.3): return "V"
-    
-    # SHORT: Agresivo 2.5x (Cazador de techos)
-    if ms_ > (cp * 2.5) and mi < (cp * 0.7): return "☄️"
-    if c_ < o and cl_p > op_p and cp > (cp_p * 1.2): return "R"
-    return "."
-
-print("📡 SISTEMA ON: LI | AD | XR")
-
-while True:
+# --- 🧠 2. MEMORIA REDIS ---
+r = redis.from_url(os.getenv("REDIS_URL")) if os.getenv("REDIS_URL") else None
+def g_m(leer=False, d=None):
+    c_i = 15.77
+    if not r: return c_i
     try:
-        for m in ms:
-            s = st[m]
-            px = float(cl.get_symbol_ticker(symbol=m)['price'])
-            k = cl.get_klines(symbol=m, interval='1m', limit=3)
-            ptr = ni(k[-1], k[-2])
-            cr = float(k[-1][4])
+        if leer:
+            h = r.get("cap_v143")
+            return float(h) if h else c_i
+        else: r.set("cap_v143", str(d))
+    except: return c_i
 
-            if not s['e']:
-                print(f"{m[:2]}:{ptr}", end=' ')
-                if (("🔨" in ptr or "V" in ptr) and px > cr) or (("☄️" in ptr or "R" in ptr) and px < cr):
-                    s['t'] = "LONG" if "V" in ptr or "🔨" in ptr else "SHORT"
-                    s['p'], s['e'], s['m'], s['b'] = px, True, -9.0, False
-                    print(f"\n🔥 ENTRADA {m}: {s['t']}")
-            else:
-                df = (px - s['p']) / s['p'] if s['t'] == "LONG" else (s['p'] - px) / s['p']
-                roi = (df * 100 * 10) - 0.22 # Apalancamiento x10
-                if roi > s['m']: s['m'] = roi
-                if roi >= 0.15: s['b'] = True # Escudo Blindado
+# --- 🚀 3. MOTOR V143 (5x -> 15x) ---
+def bot():
+    threading.Thread(target=s_h, daemon=True).start()
+    c = Client(); cap = g_m(leer=True); ops = []
+    print(f"🦁 V143 AGRESIVA | ${cap}")
+
+    while True:
+        t_l = time.time()
+        try:
+            for o in ops[:]:
+                p_a = float(c.get_symbol_ticker(symbol=o['s'])['price'])
+                diff = (p_a - o['p'])/o['p'] if o['l']=="LONG" else (o['p'] - p_a)/o['p']
+                roi = diff * 100 * o['x']
                 
-                # CIERRES: Blindaje al 0%, Trailing o Stop al -0.50%
-                if (s['b'] and roi <= 0.0) or (s['m'] >= 0.35 and roi <= (s['m'] - 0.10)) or roi <= -0.50:
-                    res = (30.76 * (roi / 100))
-                    s['n'] += res; s['o'] += 1; s['e'] = False
-                    print(f"\n✅ {m} {roi:.2f}% | NETO: {s['n']:.2f}")
+                # Escalada Ultra Rápida (5x a 15x)
+                if roi > 0.2 and o['x'] == 5: 
+                    o['x'] = 15; o['be'] = True
+                    print(f"🔥 SALTO A 15X: {o['s']}")
 
-        time.sleep(15)
-    except Exception:
-        time.sleep(10); cl = c()
+                # Cierre ajustado para no esperar tanto
+                if (o['be'] and roi <= 0.05) or roi >= 1.5 or roi <= -0.9:
+                    n_c = cap * (1 + (roi/100))
+                    g_m(d=n_c); ops.remove(o); cap = n_c
+                    print(f"✅ FIN {o['s']} | ROI: {roi:.2f}%")
+
+            if len(ops) < 2:
+                # Monedas más volátiles para ver movimiento
+                for m in ['PEPEUSDT', 'SOLUSDT', 'DOGEUSDT', 'ETHUSDT', 'BTCUSDT']:
+                    if any(x['s'] == m for x in ops): continue
+                    k = c.get_klines(symbol=m, interval='1m', limit=30)
+                    cl = [float(x[4]) for x in k]
+                    op = [float(x[1]) for x in k]
+                    
+                    e9, e27 = sum(cl[-9:])/9, sum(cl[-27:])/27
+                    v, v_a, o_v, o_a = cl[-2], cl[-3], op[-2], op[-3]
+
+                    # Gatillo: Acción de precio pura
+                    if v > o_v and v > o_a and v > e9 and e9 > e27:
+                        ops.append({'s':m,'l':'LONG','p':cl[-1],'x':5,'be':False})
+                        print(f"🎯 DISPARO 5x: {m}")
+                        break
+                    if v < o_v and v < o_a and v < e9 and e9 < e27:
+                        ops.append({'s':m,'l':'SHORT','p':cl[-1],'x':5,'be':False})
+                        print(f"🎯 DISPARO 5x: {m}")
+                        break
+
+            print(f"💰 ${cap:.2f} | Activas: {len(ops)} | {time.strftime('%H:%M:%S')}", end='\r')
+        except: time.sleep(5)
+        time.sleep(max(1, 10 - (time.time() - t_l)))
+
+if __name__ == "__main__": bot()
